@@ -1,0 +1,84 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vibe-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vibe}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vibe}
+      POSTGRES_DB: ${POSTGRES_DB:-vibe}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # Только localhost — на сервере БД наружу не торчит.
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vibe} -d ${POSTGRES_DB:-vibe}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: vibe-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  bot:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: vibe-app:local
+    container_name: vibe-bot
+    env_file:
+      - ../.env
+    environment:
+      # Перекрываем host'ы для контейнерной сети — внутри compose БД доступна по имени сервиса.
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://vibe:vibe@postgres:5432/vibe}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api:
+    # Тот же образ, что и bot (собирается сервисом bot и тегается vibe-app:local).
+    image: vibe-app:local
+    container_name: vibe-api
+    command:
+      - uvicorn
+      - app.api.app:create_app
+      - --factory
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://vibe:vibe@postgres:5432/vibe}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    ports:
+      # Только localhost — наружу API отдаёт Caddy (reverse_proxy).
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:

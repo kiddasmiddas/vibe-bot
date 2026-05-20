@@ -1,0 +1,78 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual env / uv
+.venv/
+venv/
+env/
+.python-version
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Tests / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+
+# Linters / type-checkers
+.ruff_cache/
+.mypy_cache/
+.pytype/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Docker
+docker/.env
+
+# Local NSFW model artifacts (NudeNet ONNX, etc.) — only at repo root
+/models/
+
+# Mini App build
+webapp/node_modules/
+webapp/dist/
+
+# Alembic — only autogen output; manual files committed
+# (keep alembic/ tracked)
+webapp/*.tsbuildinfo
+
+# Internal dev artifacts — keep locally, never push to client repo
+.claude/
+CLAUDE.md
+docs/PROMPTS.md

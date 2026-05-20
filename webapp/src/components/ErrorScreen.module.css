@@ -1,0 +1,47 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  text-align: center;
+  min-height: 60vh;
+  gap: 16px;
+}
+
+.icon {
+  font-size: 48px;
+  line-height: 1;
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--tg-theme-text-color);
+}
+
+.message {
+  font-size: 15px;
+  color: var(--tg-theme-hint-color);
+  max-width: 300px;
+  line-height: 1.6;
+}
+
+.retryButton {
+  margin-top: 8px;
+  padding: 12px 24px;
+  background-color: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  transition: opacity 0.15s ease;
+}
+
+.retryButton:hover {
+  opacity: 0.85;
+}
+
+.retryButton:active {
+  opacity: 0.7;
+}

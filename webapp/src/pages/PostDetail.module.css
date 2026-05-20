@@ -1,0 +1,260 @@
+.page {
+  --surface: var(--komfi-paper);
+  --accent: var(--komfi-lime);
+  --accent-soft: var(--komfi-lime-soft);
+  --green: var(--komfi-green);
+  --ink: var(--komfi-ink);
+  --cloth: var(--komfi-cloth);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  isolation: isolate;
+  background-color: var(--komfi-cream);
+  background-image:
+    linear-gradient(rgba(166, 207, 62, 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(166, 207, 62, 0.12) 1px, transparent 1px),
+    linear-gradient(180deg, #fbf7ed 0%, #eef4dc 100%);
+  background-size: 28px 28px, 28px 28px, 100% 100%;
+  color: var(--ink);
+  overflow-y: auto;
+}
+
+.page::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(166, 207, 62, 0.28), transparent 28%),
+    linear-gradient(135deg, transparent 0 42%, rgba(32, 44, 39, 0.05) 42% 44%, transparent 44% 100%);
+  opacity: 0.9;
+}
+
+.backButton {
+  align-self: flex-start;
+  margin: 14px 16px 10px;
+  padding: 9px 16px;
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--green);
+  background:
+    linear-gradient(180deg, var(--accent-soft), var(--accent));
+  border: 3px solid #fffdf2;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 4px 0 var(--green), 0 10px 18px rgba(23, 34, 29, 0.14);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+}
+
+.backButton:active {
+  transform: translateY(2px);
+  opacity: 0.86;
+  box-shadow: 0 2px 0 var(--green), 0 8px 14px rgba(23, 34, 29, 0.12);
+}
+
+/* Загрузка */
+.loadingWrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 64px 24px;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(40, 93, 47, 0.24);
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Карусель фотографий */
+.carousel {
+  position: relative;
+  width: calc(100% - 32px);
+  margin: 4px 16px 0;
+  overflow: hidden;
+  border: 3px solid #fffdf2;
+  border-radius: 8px;
+  background:
+    repeating-linear-gradient(0deg, var(--komfi-stitch) 0 1px, transparent 1px 18px),
+    repeating-linear-gradient(90deg, var(--komfi-stitch) 0 1px, transparent 1px 18px),
+    var(--cloth);
+  box-shadow: 0 6px 0 rgba(40, 93, 47, 0.32), 0 16px 26px rgba(23, 34, 29, 0.16);
+}
+
+.carouselTrack {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.carouselTrack::-webkit-scrollbar {
+  display: none;
+}
+
+.carouselSlide {
+  flex: 0 0 100%;
+  width: 100%;
+  scroll-snap-align: start;
+  position: relative;
+  /* 4:3 */
+  padding-top: 75%;
+  background:
+    repeating-linear-gradient(0deg, var(--komfi-stitch) 0 1px, transparent 1px 18px),
+    repeating-linear-gradient(90deg, var(--komfi-stitch) 0 1px, transparent 1px 18px),
+    var(--cloth);
+}
+
+.carouselImage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.carouselFallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background:
+    repeating-linear-gradient(0deg, var(--komfi-stitch) 0 1px, transparent 1px 18px),
+    repeating-linear-gradient(90deg, var(--komfi-stitch) 0 1px, transparent 1px 18px),
+    var(--cloth);
+}
+
+.carouselFallbackIcon {
+  font-size: 48px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 0 #fffdf2);
+}
+
+.carouselFallbackLabel {
+  font-size: 14px;
+  color: var(--accent-soft);
+  font-weight: 900;
+}
+
+/* Dots-индикатор для карусели */
+.carouselDots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 0 4px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: rgba(40, 93, 47, 0.35);
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.dotActive {
+  background-color: var(--green);
+  transform: scale(1.3);
+}
+
+/* Контент поста */
+.content {
+  margin: 18px 16px 22px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background:
+    linear-gradient(180deg, #fffdf4 0%, #f7f0dc 100%);
+  border: 2px dashed rgba(40, 93, 47, 0.34);
+  border-radius: 8px;
+  box-shadow: 0 6px 0 rgba(166, 207, 62, 0.22), 0 16px 26px rgba(23, 34, 29, 0.12);
+}
+
+.metaRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.categoryBadge {
+  font-size: 13px;
+  font-weight: 900;
+  color: #fffdf2;
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.14) 0 6px, transparent 6px 12px),
+    var(--green);
+  padding: 5px 10px;
+  border-radius: 6px;
+}
+
+.premiumBadge {
+  font-size: 12px;
+  font-weight: 700;
+  background-color: #f5c518;
+  color: #1a1a1a;
+  padding: 3px 10px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.author {
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--green);
+}
+
+.description {
+  font-size: 15px;
+  color: var(--ink);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Кнопка «В канал» */
+.channelButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 14px 20px;
+  background:
+    linear-gradient(180deg, var(--accent-soft), var(--accent));
+  color: var(--green);
+  border: 3px solid #fffdf2;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 900;
+  margin-top: 8px;
+  box-shadow: 0 5px 0 var(--green), 0 12px 24px rgba(23, 34, 29, 0.18);
+  transition: opacity 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.channelButton:hover {
+  opacity: 0.88;
+}
+
+.channelButton:active {
+  opacity: 0.72;
+  transform: translateY(3px);
+  box-shadow: 0 2px 0 var(--green), 0 8px 16px rgba(23, 34, 29, 0.14);
+}

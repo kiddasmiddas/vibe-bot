@@ -1,0 +1,220 @@
+.page {
+  --surface: var(--komfi-paper);
+  --accent: var(--komfi-lime);
+  --accent-soft: var(--komfi-lime-soft);
+  --green: var(--komfi-green);
+  --ink: var(--komfi-ink);
+  --cloth: var(--komfi-cloth);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  isolation: isolate;
+  overflow-x: hidden;
+  background-color: var(--komfi-cream);
+  background-image:
+    linear-gradient(rgba(166, 207, 62, 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(166, 207, 62, 0.12) 1px, transparent 1px),
+    linear-gradient(180deg, #fbf7ed 0%, #eef4dc 100%);
+  background-size: 28px 28px, 28px 28px, 100% 100%;
+  color: var(--ink);
+}
+
+.page::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(166, 207, 62, 0.28), transparent 28%),
+    linear-gradient(135deg, transparent 0 42%, rgba(32, 44, 39, 0.05) 42% 44%, transparent 44% 100%);
+  opacity: 0.9;
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 16px 16px 14px;
+  background:
+    repeating-linear-gradient(0deg, rgba(166, 207, 62, 0.14) 0 1px, transparent 1px 18px),
+    repeating-linear-gradient(90deg, rgba(166, 207, 62, 0.12) 0 1px, transparent 1px 18px),
+    rgba(32, 44, 39, 0.96);
+  border-bottom: 3px solid var(--accent);
+  box-shadow: 0 8px 0 rgba(255, 255, 255, 0.72), 0 14px 24px rgba(23, 34, 29, 0.14);
+  color: #fffdf2;
+}
+
+.kicker {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  margin-bottom: 6px;
+  color: var(--accent-soft);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.header h1 {
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1;
+  color: var(--accent-soft);
+  text-shadow:
+    0 2px 0 #ffffff,
+    2px 0 0 var(--green),
+    -2px 0 0 var(--green),
+    0 -2px 0 var(--green),
+    0 4px 10px rgba(0, 0, 0, 0.35);
+}
+
+.grid {
+  display: grid;
+  /* minmax(0, 1fr), а не 1fr: иначе ячейка раздувается под контент
+     (длинное слово / фото) и колонки получаются разной ширины. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* Все ряды одинаковой высоты — карточки выровнены ровно по сетке. */
+  grid-auto-rows: 1fr;
+  gap: 14px;
+  padding: 22px 14px 18px;
+  margin: 0;
+  list-style: none;
+}
+
+/* li-обёртка карточки — flex-контейнер на всю высоту grid-ячейки,
+   чтобы вложенная .card растягивалась одинаково во всех ячейках. */
+.grid > li {
+  display: flex;
+  min-width: 0;
+}
+
+@media (min-width: 480px) {
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Skeleton */
+.skeleton {
+  background:
+    linear-gradient(90deg, transparent 25%, rgba(255, 255, 255, 0.28) 50%, transparent 75%),
+    repeating-linear-gradient(0deg, rgba(166, 207, 62, 0.22) 0 1px, transparent 1px 18px),
+    var(--cloth);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border: 2px solid #fffdf2;
+  border-radius: 8px;
+  box-shadow: 0 5px 0 rgba(40, 93, 47, 0.22);
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.skeletonCard {
+  composes: skeleton;
+  height: 200px;
+}
+
+.sentinel {
+  height: 1px;
+  width: 100%;
+}
+
+.loadingMore {
+  display: flex;
+  justify-content: center;
+  padding: 16px;
+}
+
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid rgba(40, 93, 47, 0.25);
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 30px 22px;
+  text-align: center;
+  gap: 12px;
+  flex: 1;
+  margin: 32px 16px;
+  align-self: center;
+  max-width: 360px;
+  min-height: 280px;
+  background: var(--surface);
+  border: 2px dashed rgba(40, 93, 47, 0.35);
+  border-radius: 8px;
+  box-shadow: 0 8px 0 rgba(166, 207, 62, 0.22), 0 18px 28px rgba(23, 34, 29, 0.12);
+}
+
+.emptyIcon {
+  font-size: 48px;
+  line-height: 1;
+}
+
+.emptyTitle {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--green);
+}
+
+.emptyMessage {
+  font-size: 15px;
+  color: var(--komfi-muted);
+  max-width: 280px;
+}
+
+.endOfFeed {
+  text-align: center;
+  padding: 16px;
+  font-size: 13px;
+  color: var(--green);
+  font-weight: 700;
+}
+
+/* FAB — Новый пост */
+.fab {
+  position: fixed;
+  bottom: 24px;
+  right: 20px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background:
+    linear-gradient(180deg, var(--accent-soft), var(--accent));
+  color: var(--green);
+  border: 3px solid #fffdf2;
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 5px 0 var(--green), 0 12px 24px rgba(23, 34, 29, 0.24);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 20;
+}
+
+.fab:active {
+  transform: translateY(3px) scale(0.96);
+  opacity: 0.85;
+}

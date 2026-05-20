@@ -1,0 +1,116 @@
+"""Тексты пользовательских сообщений для FSM-регистрации (этап 3.1)."""
+
+from __future__ import annotations
+
+# --- captcha ---
+CAPTCHA_PROMPT = "Для защиты от ботов: выбери {emoji}"
+CAPTCHA_WRONG = "Неверно, попробуй ещё раз."
+
+START_REG = (
+    "Создаём твою анкету. На каждом шаге можно вернуться назад. "
+    "Команда /cancel — выйти из регистрации."
+)
+
+# --- nickname ---
+ASK_NICKNAME = "Как тебя называть? Придумай никнейм для анкеты."
+NICKNAME_TOO_SHORT = "Слишком короткий ник. Минимум {min_len} символа(ов)."
+NICKNAME_TOO_LONG = "Слишком длинный ник. Максимум {max_len} символов."
+
+# --- age ---
+ASK_AGE = "Сколько тебе лет? Просто число."
+AGE_NOT_NUMBER = "Это не число. Введи возраст цифрами, например: 21."
+AGE_TOO_LOW = "Возраст должен быть не меньше {min_age}."
+AGE_TOO_HIGH = "Возраст должен быть не больше {max_age}."
+
+# --- gender ---
+ASK_GENDER = "Укажи свой пол."
+GENDER_INVALID = "Не понял выбор. Нажми одну из кнопок."
+
+# --- looking_for_genders ---
+ASK_LOOKING_FOR_GENDERS = "Кого ты ищешь? Выбери один или несколько вариантов."
+LOOKING_FOR_GENDERS_EMPTY = "Выбери хотя бы один вариант."
+
+# --- looking_for_age_min/max ---
+ASK_LOOKING_FOR_AGE_MIN = "От какого возраста ищешь? Введи число."
+ASK_LOOKING_FOR_AGE_MAX = "До какого возраста ищешь? Введи число."
+AGE_MIN_GT_MAX = "Верхняя граница должна быть не меньше нижней. Попробуй ещё раз."
+
+# --- bio ---
+ASK_BIO = "Расскажи о себе в двух словах. Это покажут в анкете."
+BIO_TOO_LONG = "Слишком длинный текст. Максимум {max_len} символов."
+BIO_EMPTY = "Не оставляй пустым — пара слов о себе."
+
+# --- fandoms / desired_fandoms / interests ---
+ASK_FANDOMS = "Выбери свои фандомы. Можно несколько."
+FANDOMS_EMPTY = "Выбери хотя бы один фандом."
+ASK_DESIRED_FANDOMS = "А какие фандомы у собеседника? Выбери хотя бы один."
+DESIRED_FANDOMS_EMPTY = "Выбери хотя бы один фандом."
+ASK_INTERESTS = "Отметь интересы — это поможет в подборе. Можно пропустить, нажав «Готово»."
+
+# --- city ---
+ASK_CITY = (
+    "Из какого ты города? Напечатай название — покажу варианты.\n"
+    "Если тебя нет в списке, введи название так, как знаешь."
+)
+CITY_MULTIPLE_MATCHES = "Нашлось несколько вариантов. Выбери свой:"
+CITY_NO_MATCH_NO_SUGGESTIONS = "Такого города нет в базе. Попробуй другое написание."
+CITY_CONFIRMED = "Записал город: {city}."
+BTN_CITY_ANY = "Не указывать город"
+BTN_DESIRED_VIBE_ANY = "Любой вайб / Не важно"
+
+# --- moderation ---
+MODERATION_REJECTED_STOP_WORD = (
+    "Похоже, в тексте есть недопустимые слова. Попробуй сформулировать иначе."
+)
+MODERATION_REJECTED_LINK = "Ссылки и упоминания в этом поле запрещены. Перепиши без них."
+
+# --- меню кнопок ---
+BTN_DONE = "Готово ✅"
+BTN_BACK_STEP = "◀️ Назад"
+BTN_PAGE_PREV = "◀️"
+BTN_PAGE_NEXT = "▶️"
+
+# --- vibes ---
+VIBE_LIST_EMPTY = "Нет доступных вайбов. Обратись к админам — без них регистрацию не завершить."
+ASK_OWN_VIBE_PICKER = "Выбери свой вайб"
+ASK_DESIRED_VIBE_PICKER = "Какой вайб ты ищешь? Можно несколько. Или нажми «Любой вайб»."
+DESIRED_VIBE_NEED_NON_EMPTY = "Выбери хотя бы один вайб или нажми «Любой вайб»."
+RENDER_VIBE_NUMBER = "№{number}"
+
+# --- end ---
+CANCELLED = "Регистрация отменена. Вернись к /start, когда будешь готов."
+REGISTRATION_TO_MEDIA_HINT = (
+    "Отлично! Дальше — фото / видео / GIF для анкеты. (Будет в следующем обновлении.)"
+)
+
+# --- media (этап 3.3) ---
+ASK_MEDIA = (
+    "Пришли одно медиа для анкеты: фото, видео или GIF. Это должен быть ты, "
+    "а не картинка из интернета — без таких анкеты в выдаче не появляются."
+)
+MEDIA_WRONG_TYPE = "Подходит только фото, видео или GIF. Попробуй ещё раз."
+MEDIA_TOO_LARGE = "Фото слишком большое — максимум 5 МБ. Пришли файл полегче."
+MEDIA_REJECTED = "Это медиа не прошло проверку (контент 18+). Пришли другое."
+MEDIA_PENDING_REVIEW = "Медиа отправлено на ручную проверку. Скоро анкета появится в поиске."
+PROFILE_CREATED_OK = "Анкета создана! Теперь твой профиль участвует в подборе."
+PROFILE_PENDING_REVIEW_OK = (
+    "Анкета создана. Она появится в выдаче, как только модератор подтвердит медиа."
+)
+PROFILE_SAVE_FAILED = "Не получилось сохранить анкету. Попробуй прислать медиа ещё раз."
+RENDER_HEADER_OK = "Так выглядит твоя анкета:"
+
+# --- render profile card (этап 3.3) ---
+RENDER_FIELD_AGE = "Возраст"
+RENDER_FIELD_GENDER = "Пол"
+RENDER_FIELD_CITY = "Город"
+RENDER_FIELD_BIO = "О себе"
+RENDER_FIELD_FANDOMS = "Фандомы"
+RENDER_FIELD_DESIRED_FANDOMS = "Ищет фандомы"
+RENDER_FIELD_INTERESTS = "Интересы"
+RENDER_FIELD_OWN_VIBE = "Вайб"
+RENDER_FIELD_DESIRED_VIBE = "Ищет вайб"
+RENDER_FIELD_LOOKING_FOR = "Ищет"
+RENDER_FIELD_LOOKING_FOR_AGE = "Возраст поиска"
+RENDER_EMPTY_VALUE = "—"
+# desired_vibe IS NULL → пользователь ищет «любой» вайб (кнопка на шаге выбора).
+RENDER_VIBE_ANY = "любой"

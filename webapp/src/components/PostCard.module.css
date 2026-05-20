@@ -1,0 +1,141 @@
+.card {
+  background:
+    linear-gradient(180deg, #fffdf4 0%, #f7f0dc 100%);
+  border: 2px solid #fffdf2;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: 0 5px 0 rgba(40, 93, 47, 0.32), 0 12px 20px rgba(23, 34, 29, 0.12);
+  transition: transform 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+  /* Колонка во всю высоту grid-ячейки: все карточки одного размера.
+     flex:1 — растянуться внутри li-обёртки (она display:flex).
+     min-width:0 — карточка не шире своей колонки. */
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+
+.card:active {
+  transform: translateY(3px) scale(0.98);
+  opacity: 0.9;
+  box-shadow: 0 2px 0 rgba(40, 93, 47, 0.32), 0 8px 14px rgba(23, 34, 29, 0.12);
+}
+
+.photoWrapper {
+  position: relative;
+  width: 100%;
+  /* 4:3 aspect ratio */
+  padding-top: 75%;
+  background:
+    repeating-linear-gradient(0deg, var(--komfi-stitch) 0 1px, transparent 1px 18px),
+    repeating-linear-gradient(90deg, var(--komfi-stitch) 0 1px, transparent 1px 18px),
+    var(--komfi-cloth);
+  overflow: hidden;
+  /* В flex-колонке без этого фото сжимается под длинный текст —
+     карточки получают фото разной высоты. */
+  flex-shrink: 0;
+}
+
+.photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-bottom: 3px solid var(--komfi-lime);
+}
+
+.photoFallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background:
+    repeating-linear-gradient(0deg, var(--komfi-stitch) 0 1px, transparent 1px 18px),
+    repeating-linear-gradient(90deg, var(--komfi-stitch) 0 1px, transparent 1px 18px),
+    var(--komfi-cloth);
+  gap: 8px;
+}
+
+.photoFallbackIcon {
+  font-size: 36px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 0 #fffdf2);
+}
+
+.photoFallbackLabel {
+  font-size: 13px;
+  color: var(--komfi-lime-soft);
+  font-weight: 800;
+  text-align: center;
+  padding: 0 8px;
+}
+
+.premiumBadge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background-color: #f5c518;
+  color: #1a1a1a;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.body {
+  padding: 12px 14px 14px;
+  /* Тянется на остаток высоты — низ карточки ровный у всех. */
+  flex: 1;
+}
+
+.categoryBadge {
+  /* Формочка во всю ширину карточки — длинные категории
+     («Стримеры / блогеры») помещаются целиком. */
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fffdf2;
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.14) 0 6px, transparent 6px 12px),
+    var(--komfi-green);
+  padding: 4px 8px;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  text-align: left;
+  /* Одна строка; на случай совсем длинной категории — троеточие. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--komfi-ink);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* Резервируем место под 2 строки — заголовки в 1 строку не «прыгают». */
+  min-height: calc(1.4em * 2);
+}
+
+.author {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--komfi-green);
+  font-weight: 700;
+  /* Автор — строго одна строка, длинное имя обрезается троеточием. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

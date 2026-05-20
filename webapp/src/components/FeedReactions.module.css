@@ -1,0 +1,42 @@
+.reactions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 12px 16px 0;
+}
+
+.reactionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--tg-theme-hint-color) 30%, transparent);
+  border-radius: 20px;
+  background-color: var(--tg-theme-secondary-bg-color);
+  cursor: pointer;
+  font-size: 15px;
+  color: var(--tg-theme-text-color);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.reactionBtn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.reactionBtnActive {
+  background-color: color-mix(in srgb, var(--tg-theme-button-color) 15%, var(--tg-theme-secondary-bg-color));
+  border-color: var(--tg-theme-button-color);
+}
+
+.emoji {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.count {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tg-theme-text-color);
+}
