@@ -230,7 +230,12 @@ async def on_dict_code(message: Message, state: FSMContext, user: User) -> None:
 
 
 @router.message(StateFilter(AdminDictStates.ask_title), F.text)
-async def on_dict_title(message: Message, state: FSMContext, user: User) -> None:
+async def on_dict_title(
+    message: Message,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+) -> None:
     if not is_admin(user):
         await state.clear()
         return
@@ -241,7 +246,7 @@ async def on_dict_title(message: Message, state: FSMContext, user: User) -> None
         await state.set_state(AdminDictStates.ask_number)
         await message.answer(DICTS_ADD_ASK_NUMBER, reply_markup=admin_back_home_kb())
     else:
-        await _create_dict_entry(message, state, model_key)
+        await _create_dict_entry(message, state, model_key, db_session=db_session)
 
 
 @router.message(StateFilter(AdminDictStates.ask_number), F.text)
