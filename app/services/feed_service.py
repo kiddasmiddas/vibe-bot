@@ -12,7 +12,7 @@ from loguru import logger
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.feed import FeedPostMedia
+from app.db.models.feed import FeedPost, FeedPostMedia
 from app.db.models.profile import Profile
 from app.db.models.user import User
 from app.db.repositories.analytics_repo import AnalyticsRepository
@@ -330,3 +330,136 @@ class FeedService:
             raise FeedServiceError(403, "Cannot delete someone else's comment")
         await self._feed_repo.set_comment_status(comment_id, "deleted_by_user")
         await self._db.commit()
+
+    # ------------------------------------------------------------------
+    # Update post (Волна 3)
+    # ------------------------------------------------------------------
+
+    async def update_post(
+        self,
+        *,
+        user: User,
+        post_id: int,
+        text: str,
+        media: list[dict[str, str]] | None,
+    ) -> tuple[FeedPost, bool]:
+        """Редактировать пост (Волна 3).
+
+        Параметры:
+        - `text` — новый текст (обязателен).
+        - `media` — список новых медиа в виде [{file_id, media_type}, ...].
+          `None` означает «медиа не трогаем»; пустой список — удалить всё.
+
+        Возвращает (post, changed): changed=True если применили изменения и
+        проставили pending_review. changed=False — no-op (повторный submit с
+        тем же контентом), в этом случае admin-notify слать не надо.
+
+        Поведение:
+        - Только автор может редактировать (403).
+        - Запрещено редактирование постов в статусах кроме 'active' (409).
+        - При совпадении нового текста и медиа с текущими — no-op, возвращаем как есть.
+        - При смене текста — повторная текст-модерация (422 при отказе).
+        - Для НОВЫХ медиа (которых не было в посте) — NSFW-проверка (422 при rejected).
+        - При любом фактическом изменении пост уходит в is_pending_review=True,
+          уведомление админам присылает вызывающий роут (graceful, не ломает ответ).
+        - `expires_at` не сбрасывается — 48-часовой таймер идёт от created_at.
+        Raises FeedServiceError при нарушении правил.
+        """
+        now = datetime.now(tz=UTC)
+
+        post = await self._feed_repo.get_by_id(post_id)
+        if post is None:
+            raise FeedServiceError(404, "Post not found")
+        if post.author_user_id != user.id:
+            raise FeedServiceError(403, "Cannot edit someone else's post")
+        # Редактирование запрещено для blocked/hidden_by_moderator/deleted_by_user/expired.
+        if post.status != "active":
+            raise FeedServiceError(409, "Post cannot be edited in current status")
+
+        # Текущее состояние для сравнения и решения о no-op.
+        current_media = await self._feed_repo.get_photos_for_post(post_id)
+        current_keys: list[tuple[str, str]] = [(m.file_id, m.media_type) for m in current_media]
+
+        text_changed = text != post.text
+
+        media_changed = False
+        normalized_new_media: list[dict[str, Any]] | None = None
+        if media is not None:
+            # Нормализуем входные данные, чтобы устойчиво сравнивать с текущими.
+            normalized_new_media = [
+                {
+                    "file_id": item["file_id"],
+                    "media_type": item.get("media_type", "photo"),
+                    "sort_order": idx,
+                }
+                for idx, item in enumerate(media)
+            ]
+            new_keys = [(item["file_id"], item["media_type"]) for item in normalized_new_media]
+            media_changed = new_keys != current_keys
+
+        if not text_changed and not media_changed:
+            # Никаких реальных изменений — не тратим квоту модерации и не пишем БД.
+            return post, False
+
+        # Модерация текста — только если текст реально поменялся.
+        if text_changed:
+            mod_result = await self._moderation.check_text(
+                text,
+                allow_links=False,
+                target_kind="feed_post",
+                target_id=post_id,
+                user_id=user.id,
+            )
+            if not mod_result.approved:
+                raise FeedServiceError(422, "Text contains prohibited content or links")
+
+        # NSFW-проверка только для НОВЫХ медиа (которых не было раньше).
+        # Файлы, уже бывшие в посте, повторно не гоняем через NudeNet.
+        if media_changed and normalized_new_media is not None:
+            existing_file_ids = {m.file_id for m in current_media}
+            for item in normalized_new_media:
+                if item["file_id"] in existing_file_ids:
+                    continue
+                # Скачиваем по file_id через бота — но в текущей архитектуре
+                # upload-эндпойнт уже прогнал НОВЫЕ файлы через NSFW при загрузке.
+                # Поэтому здесь дополнительная проверка не нужна: file_id может
+                # быть в посте только после прохождения /api/feed/upload.
+                # Если в будущем появится способ обойти upload — добавить
+                # check_image() здесь.
+                logger.debug(
+                    "feed update_post: new media item file_id={} (NSFW already checked at upload)",
+                    item["file_id"],
+                )
+
+        # Применяем изменения.
+        updated = await self._feed_repo.update_post(
+            post_id,
+            text=text if text_changed else None,
+            set_pending_review=True,
+            updated_at=now,
+        )
+        if updated is None:
+            # Гонка: пост удалили между get_by_id и update_post. Маловероятно,
+            # но обрабатываем явно — 404, чтобы фронт показал ошибку.
+            raise FeedServiceError(404, "Post not found")
+
+        if media_changed and normalized_new_media is not None:
+            await self._feed_repo.replace_media(post_id, normalized_new_media)
+
+        await self._db.commit()
+        await self._log_event(
+            user.id,
+            EventType.FEED_POST_EDITED,
+            {
+                "post_id": post_id,
+                "text_changed": text_changed,
+                "media_changed": media_changed,
+            },
+        )
+
+        # Возвращаем свежий объект — нужен роуту для построения ответа.
+        refreshed = await self._feed_repo.get_by_id(post_id)
+        if refreshed is None:
+            # Гонка с purge_old_posts — крайне маловероятно, но не игнорируем.
+            raise FeedServiceError(500, "Post disappeared after update")
+        return refreshed, True

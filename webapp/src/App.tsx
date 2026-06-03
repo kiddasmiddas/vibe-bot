@@ -4,6 +4,7 @@ import { PostDetail } from './pages/PostDetail'
 import { FeedList } from './pages/FeedList'
 import { FeedPostDetail } from './pages/FeedPostDetail'
 import { FeedCreate } from './pages/FeedCreate'
+import { FeedEdit } from './pages/FeedEdit'
 
 export function App() {
   return (
@@ -13,6 +14,7 @@ export function App() {
       <Route path="/feed" element={<FeedList />} />
       <Route path="/feed/new" element={<FeedCreate />} />
       <Route path="/feed/:id" element={<FeedPostDetail />} />
+      <Route path="/feed/:id/edit" element={<FeedEdit />} />
       {/* Fallback: любой неизвестный путь → на главную */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

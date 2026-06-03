@@ -125,9 +125,7 @@ async def test_cb_feed_list_pending_shows_first_card_with_media(db_session, monk
     approve_cb = AdminFeedReviewCb(
         action="approve", post_id=post_a.id, offset=0, status="pending"
     ).pack()
-    assert approve_cb in cb_values, (
-        f"Кнопка approve с post_id={post_a.id} не найдена: {cb_values}"
-    )
+    assert approve_cb in cb_values, f"Кнопка approve с post_id={post_a.id} не найдена: {cb_values}"
 
 
 @pytest.mark.asyncio
@@ -256,9 +254,7 @@ async def test_cb_frv_skip_goes_to_offset_plus_one(db_session, monkeypatch) -> N
     admin = _make_admin_user(111)
     callback = _make_callback()
     # Кнопка Skip уже кодирует offset+1 в callback_data и текущий post_id.
-    callback_data = AdminFeedReviewCb(
-        action="skip", post_id=_post_a.id, offset=1, status="pending"
-    )
+    callback_data = AdminFeedReviewCb(action="skip", post_id=_post_a.id, offset=1, status="pending")
 
     with patch("app.bot.handlers.admin.feed.show_screen", new=AsyncMock()) as mock_show:
         await cb_frv_skip(

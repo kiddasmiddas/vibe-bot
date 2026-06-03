@@ -45,6 +45,73 @@ class FeedRepository:
         await self._session.execute(stmt)
         await self._session.flush()
 
+    async def update_post(
+        self,
+        post_id: int,
+        *,
+        text: str | None = None,
+        set_pending_review: bool = False,
+        updated_at: datetime | None = None,
+    ) -> FeedPost | None:
+        """Частичное обновление поста (Волна 3 — редактирование автором).
+
+        Обновляются только переданные не-None поля. Если `set_pending_review=True`,
+        флаг is_pending_review выставляется в True. Поле updated_at пишется явно
+        (без onupdate=), чтобы случайные UPDATE на других полях не сдвигали отметку.
+
+        Возвращает обновлённый объект FeedPost или None, если поста нет.
+        Не меняет expires_at — 48-часовой таймер по ТЗ продолжает идти от created_at.
+        """
+        values: dict[str, Any] = {}
+        if text is not None:
+            values["text"] = text
+        if set_pending_review:
+            values["is_pending_review"] = True
+        if updated_at is not None:
+            values["updated_at"] = updated_at
+
+        if not values:
+            return await self._session.get(FeedPost, post_id)
+
+        stmt = update(FeedPost).where(FeedPost.id == post_id).values(**values).returning(FeedPost)
+        result = await self._session.execute(stmt)
+        post = result.scalar_one_or_none()
+        await self._session.flush()
+        return post
+
+    async def replace_media(
+        self,
+        post_id: int,
+        new_media: list[dict[str, Any]],
+    ) -> list[FeedPostMedia]:
+        """Атомарно заменить весь набор медиа у поста.
+
+        Удаляет все существующие FeedPostMedia для поста и вставляет новые
+        в указанном порядке. Элементы `new_media` — dict с ключами:
+        - `file_id: str`
+        - `media_type: str` (например, "photo" или "gif")
+        - `sort_order: int` (позиция в карусели)
+
+        Один транзакционный блок (flush в конце) — вызывающий коммитит сам.
+        Возвращает созданные объекты FeedPostMedia в порядке вставки.
+        """
+        delete_stmt = delete(FeedPostMedia).where(FeedPostMedia.post_id == post_id)
+        await self._session.execute(delete_stmt)
+
+        created: list[FeedPostMedia] = []
+        for item in new_media:
+            media = FeedPostMedia(
+                post_id=post_id,
+                media_type=item["media_type"],
+                file_id=item["file_id"],
+                position=item["sort_order"],
+            )
+            self._session.add(media)
+            created.append(media)
+
+        await self._session.flush()
+        return created
+
     async def count_posts_by_user_since(self, user_id: int, since: datetime) -> int:
         """Число постов пользователя, созданных начиная с `since`.
 

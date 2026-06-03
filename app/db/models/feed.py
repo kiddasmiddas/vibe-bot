@@ -55,6 +55,13 @@ class FeedPost(Base):
         server_default=func.now(),
         nullable=False,
     )
+    # Волна 3: время последнего редактирования автором. Меняется явно из FeedService,
+    # без onupdate=, чтобы случайные UPDATE на статусе/флагах не сдвигали значение.
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
     published_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,

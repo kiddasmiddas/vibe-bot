@@ -33,5 +33,6 @@ class EventType(StrEnum):
     CONTENT_REJECTED_NSFW = "content_rejected_nsfw"
     CONTENT_SENT_TO_REVIEW = "content_sent_to_review"
     FEED_POST_CREATED = "feed_post_created"
+    FEED_POST_EDITED = "feed_post_edited"
     FEED_COMMENT_CREATED = "feed_comment_created"
     FEED_REACTION_SET = "feed_reaction_set"

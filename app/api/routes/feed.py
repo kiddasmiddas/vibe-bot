@@ -26,9 +26,11 @@ from app.api.schemas.feed import (
     FeedPostDetail,
     FeedPostPreview,
     FeedResponse,
+    MediaItem,
     ReactionCounts,
     ReactionResponse,
     SetReactionRequest,
+    UpdatePostRequest,
     UploadMediaResponse,
 )
 from app.bot.utils.admin_notify import notify_admins_feed_post_pending
@@ -300,15 +302,18 @@ async def get_feed_post(
     my_reaction_obj = await repo.get_user_reaction(post_id, user.id)
     my_reaction = my_reaction_obj.reaction_type if my_reaction_obj else None
 
-    # expires_at гарантированно не None: пост active и не истёк.
-    assert post.expires_at is not None
+    # expires_at гарантированно не None: пост active и не истёк (проверено выше).
+    if post.expires_at is None:
+        raise HTTPException(status_code=500, detail="Post missing expires_at")
 
     return FeedPostDetail(
         id=post.id,
+        author_id=post.author_user_id,
         author_name=post.author_name,
         text=post.text,
         created_at=post.created_at.isoformat(),
         photos=await resolve_many([m.file_id for m in photos]),
+        media=[MediaItem(media_type=m.media_type, file_id=m.file_id) for m in photos],
         expires_at=post.expires_at.isoformat(),
         reactions=counts,
         my_reaction=my_reaction,
@@ -411,6 +416,94 @@ async def create_post(
             logger.warning("feed post pending admin-notify failed: {}", exc)
 
     return CreatePostResponse(id=post_id, pending_review=pending_review)
+
+
+@router.put("/api/feed/posts/{post_id}", response_model=FeedPostDetail)
+async def update_feed_post(
+    post_id: int,
+    body: UpdatePostRequest,
+    pair: tuple[User, Profile] = Depends(current_user_with_profile),
+    db: AsyncSession = Depends(get_db_session),
+) -> FeedPostDetail:
+    """Редактировать свой пост (Волна 3).
+
+    - 403 — не автор поста / нет анкеты.
+    - 404 — пост не найден.
+    - 409 — пост в статусе, в котором редактирование запрещено
+      (blocked / hidden_by_moderator / expired / deleted_by_user).
+    - 422 — текст не прошёл модерацию (ссылка / стоп-слово).
+
+    При фактическом изменении (текст или медиа) пост уходит в pending_review=True;
+    уведомление админам отправляется через notify_admins_feed_post_pending
+    (graceful — сбой не ломает 200-ответ).
+    expires_at НЕ сбрасывается: 48-часовой таймер по ТЗ идёт от created_at.
+    """
+    user, profile = pair
+    await _check_rate_limit(user.id)
+
+    svc = _build_feed_service(db)
+    media_payload: list[dict[str, str]] | None
+    if body.media is None:
+        media_payload = None
+    else:
+        media_payload = [{"media_type": m.media_type, "file_id": m.file_id} for m in body.media]
+
+    try:
+        updated_post, changed = await svc.update_post(
+            user=user,
+            post_id=post_id,
+            text=body.text,
+            media=media_payload,
+        )
+    except FeedServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    repo = FeedRepository(db)
+    photos = await repo.get_photos_for_post(post_id)
+
+    # Уведомляем админов только когда РЕАЛЬНО применили изменения — no-op
+    # (повторный submit того же контента) не должен пере-спамить очередь.
+    if changed:
+        first_media = photos[0] if photos else None
+        try:
+            await notify_admins_feed_post_pending(
+                _get_upload_bot(),
+                author_name=profile.nickname,
+                telegram_id=user.telegram_id,
+                text=updated_post.text,
+                media_type=first_media.media_type if first_media else None,
+                media_file_id=first_media.file_id if first_media else None,
+                db_session=db,
+            )
+        except Exception as exc:
+            logger.warning("feed post edit admin-notify failed: {}", exc)
+
+    # Возвращаем актуальную карточку — фронт сразу видит изменённый text/photos.
+    raw_counts = await repo.count_reactions_by_post(post_id)
+    counts = ReactionCounts(
+        heart=raw_counts.get("heart", 0),
+        sparkle=raw_counts.get("sparkle", 0),
+        cry=raw_counts.get("cry", 0),
+        eyes=raw_counts.get("eyes", 0),
+    )
+    my_reaction_obj = await repo.get_user_reaction(post_id, user.id)
+    my_reaction = my_reaction_obj.reaction_type if my_reaction_obj else None
+
+    if updated_post.expires_at is None:
+        raise HTTPException(status_code=500, detail="Post missing expires_at")
+
+    return FeedPostDetail(
+        id=updated_post.id,
+        author_id=updated_post.author_user_id,
+        author_name=updated_post.author_name,
+        text=updated_post.text,
+        created_at=updated_post.created_at.isoformat(),
+        photos=await resolve_many([m.file_id for m in photos]),
+        media=[MediaItem(media_type=m.media_type, file_id=m.file_id) for m in photos],
+        expires_at=updated_post.expires_at.isoformat(),
+        reactions=counts,
+        my_reaction=my_reaction,
+    )
 
 
 @router.post(

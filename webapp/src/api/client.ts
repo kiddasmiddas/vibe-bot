@@ -31,9 +31,24 @@ export class NotFoundError extends Error {
 }
 
 export class ApiError extends Error {
-  constructor(message: string) {
+  status?: number
+  reason?: string
+
+  constructor(message: string, status?: number, reason?: string) {
     super(message)
     this.name = 'ApiError'
+    this.status = status
+    this.reason = reason
+  }
+}
+
+export class ConflictError extends Error {
+  detail?: string
+
+  constructor(detail?: string) {
+    super(detail ?? 'Conflict')
+    this.name = 'ConflictError'
+    this.detail = detail
   }
 }
 
@@ -80,15 +95,26 @@ async function fetchJson<T>(path: string, options: FetchOptions = {}): Promise<T
     throw new NotFoundError()
   }
 
-  if (response.status === 403 || response.status === 422) {
+  if (response.status === 403 || response.status === 422 || response.status === 409) {
     let detail = `HTTP ${response.status}`
+    let reason: string | undefined
     try {
-      const json = (await response.json()) as { detail?: string }
-      if (json.detail) detail = json.detail
+      const json = (await response.json()) as {
+        detail?: string | { reason?: string; message?: string }
+      }
+      if (typeof json.detail === 'string') {
+        detail = json.detail
+      } else if (json.detail && typeof json.detail === 'object') {
+        if (json.detail.message) detail = json.detail.message
+        if (json.detail.reason) reason = json.detail.reason
+      }
     } catch {
       // ignore parse errors
     }
-    throw new ApiError(detail)
+    if (response.status === 409) {
+      throw new ConflictError(detail)
+    }
+    throw new ApiError(detail, response.status, reason)
   }
 
   if (response.status === 204) {
@@ -143,6 +169,31 @@ export async function createFeedPost(
   return fetchJson<CreatePostResult>('/api/feed/posts', {
     method: 'POST',
     body: { text, media },
+  })
+}
+
+export interface UpdateFeedPostPayload {
+  text: string
+  /**
+   * Полный набор медиа в новом порядке.
+   * - undefined → медиа не меняется
+   * - [] → все медиа удаляются
+   * - [...] → заменить медиа целиком на переданный набор (в указанном порядке)
+   */
+  media?: MediaItem[]
+}
+
+export async function updateFeedPost(
+  id: number,
+  payload: UpdateFeedPostPayload,
+): Promise<FeedPostDetail> {
+  const body: { text: string; media?: MediaItem[] } = { text: payload.text }
+  if (payload.media !== undefined) {
+    body.media = payload.media
+  }
+  return fetchJson<FeedPostDetail>(`/api/feed/posts/${id}`, {
+    method: 'PUT',
+    body,
   })
 }
 

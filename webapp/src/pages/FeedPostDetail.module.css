@@ -151,6 +151,26 @@
   word-break: break-word;
 }
 
+/* Кнопка «Редактировать» — видна автору поста */
+.editButton {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tg-theme-button-color);
+  background-color: color-mix(in srgb, var(--tg-theme-button-color) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tg-theme-button-color) 35%, transparent);
+  border-radius: 10px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s ease;
+}
+
+.editButton:active {
+  opacity: 0.7;
+}
+
 /* Комментарии */
 .commentsSection {
   padding: 16px;

@@ -17,12 +17,26 @@ export interface FeedReactions {
   eyes: number
 }
 
+export interface FeedMediaItem {
+  media_type: string
+  file_id: string
+}
+
 export interface FeedPostDetail {
   id: number
   author_name: string
+  /**
+   * User.id автора поста. Заполняется бэком, когда нужно дать UI
+   * возможность отличить «свой» пост от чужого (для кнопки «Редактировать»).
+   * Может отсутствовать в выдаче — тогда блок управления постом скрыт.
+   */
+  author_id?: number | null
   text: string
   created_at: string
+  /** file_id'ы в порядке position — для отображения в карусели. */
   photos: string[]
+  /** Полный набор медиа с media_type — нужен при редактировании поста. */
+  media?: FeedMediaItem[]
   expires_at: string
   reactions: FeedReactions
   my_reaction: string | null

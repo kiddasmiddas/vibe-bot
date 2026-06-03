@@ -87,7 +87,7 @@ function formatCommentDate(dateStr: string): string {
 export function FeedPostDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { showBackButton, hideBackButton } = useTelegram()
+  const { showBackButton, hideBackButton, currentUserId } = useTelegram()
 
   const [post, setPost] = useState<FeedPostDetailType | null>(null)
   const [loadState, setLoadState] = useState<LoadState>('loading')
@@ -345,6 +345,18 @@ export function FeedPostDetail() {
         <p className={styles.author}>{post.author_name}</p>
         <p className={styles.date}>{formatDate(post.created_at)}</p>
         <p className={styles.text}>{post.text}</p>
+        {currentUserId !== null &&
+          post.author_id != null &&
+          post.author_id === currentUserId && (
+            <button
+              type="button"
+              className={styles.editButton}
+              onClick={() => navigate(`/feed/${post.id}/edit`)}
+              aria-label="Редактировать пост"
+            >
+              Редактировать
+            </button>
+          )}
       </div>
 
       {/* Реакции */}

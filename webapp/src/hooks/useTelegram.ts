@@ -27,8 +27,23 @@ interface BackButtonInstance {
   offClick(fn: () => void): void
 }
 
+interface TelegramUser {
+  id: number
+  first_name?: string
+  last_name?: string
+  username?: string
+}
+
+interface InitDataUnsafe {
+  user?: TelegramUser
+  query_id?: string
+  auth_date?: number
+  hash?: string
+}
+
 interface TelegramWebApp {
   initData: string
+  initDataUnsafe?: InitDataUnsafe
   themeParams: ThemeParams
   ready(): void
   expand(): void
@@ -43,6 +58,8 @@ function getTg(): TelegramWebApp | null {
 
 interface UseTelegramResult {
   initData: string | null
+  /** Telegram-id текущего пользователя (из initDataUnsafe.user.id). null вне Telegram. */
+  currentUserId: number | null
   themeParams: ThemeParams
   ready: () => void
   openTelegramLink: (url: string) => void
@@ -107,8 +124,12 @@ export function useTelegram(): UseTelegramResult {
   }, [])
 
   const tg = getTg()
+  const rawUserId = tg?.initDataUnsafe?.user?.id
+  const currentUserId =
+    typeof rawUserId === 'number' && Number.isFinite(rawUserId) ? rawUserId : null
   return {
     initData: tg?.initData && tg.initData.length > 0 ? tg.initData : null,
+    currentUserId,
     themeParams: tg?.themeParams ?? {},
     ready,
     openTelegramLink,

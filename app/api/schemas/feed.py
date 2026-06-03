@@ -22,14 +22,21 @@ class ReactionCounts(BaseModel):
     eyes: int = 0
 
 
+class MediaItem(BaseModel):
+    media_type: str
+    file_id: str
+
+
 class FeedPostDetail(BaseModel):
     """Полная карточка поста."""
 
     id: int
+    author_id: int | None  # User.id автора — фронт сравнивает с current_user для UI edit-кнопки
     author_name: str
     text: str
     created_at: str  # ISO 8601
-    photos: list[str]  # file_id в порядке position
+    photos: list[str]  # file_id в порядке position (для просмотра)
+    media: list[MediaItem]  # полный набор медиа с media_type — для редактирования
     expires_at: str  # ISO 8601
     reactions: ReactionCounts
     my_reaction: str | None
@@ -49,11 +56,6 @@ class FeedResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class MediaItem(BaseModel):
-    media_type: str
-    file_id: str
-
-
 class CreatePostRequest(BaseModel):
     text: str
     media: list[MediaItem] = []
@@ -63,6 +65,18 @@ class CreatePostResponse(BaseModel):
     id: int
     # True — пост ушёл на премодерацию, появится в ленте после одобрения.
     pending_review: bool = False
+
+
+class UpdatePostRequest(BaseModel):
+    """Запрос на редактирование поста Ленты (Волна 3).
+
+    - `text` — новый текст (обязателен, как и при создании).
+    - `media` — None ⇒ медиа не меняем; пустой список ⇒ удалить все медиа;
+      непустой список ⇒ заменить набор медиа целиком в указанном порядке.
+    """
+
+    text: str
+    media: list[MediaItem] | None = None
 
 
 class CreateCommentRequest(BaseModel):
