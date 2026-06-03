@@ -360,6 +360,33 @@ FEED_ADMIN_UNRESTRICTED = "Ограничение с пользователя #{
 FEED_ADMIN_ASK_COMMENT_ID = "Введите ID комментария для удаления:"
 FEED_ADMIN_INVALID_ID = "Введите корректный числовой ID."
 
+# Кнопки карточки поста в ленте (edit-based одиночная карточка с пагинацией).
+FEED_BTN_APPROVE = "✅ Одобрить"
+FEED_BTN_HIDE = "🙈 Скрыть пост"
+FEED_BTN_DELETE_BLOCK = "🗑 Удалить (block)"
+FEED_BTN_DEL_COMMENTS = "🧹 Удалить комментарии"
+FEED_BTN_RESTRICT = "🔇 Ограничить в комментариях"
+FEED_BTN_UNRESTRICT = "🔊 Снять ограничение"
+FEED_BTN_SKIP = "⏭ Пропустить"
+
+# Caption одиночной карточки поста ленты (admin feed review).
+# {page}          — номер карточки (1-based)
+# {total}         — общее количество постов в выборке
+# {user_id}       — author_user_id (может быть пустым)
+# {username_part} — " | author_name" или пустая строка
+# {status_label}  — локализованный статус
+# {photo_counter} — "📸 фото 1 из N\n" если несколько медиа, иначе пустая строка
+# {body}          — текст поста (обрезается truncate_caption)
+FEED_REVIEW_POST_CARD_CAPTION = (
+    "📋 Пост Ленты {page}/{total}\n"
+    "\n"
+    "Автор: <code>id={user_id}</code>{username_part}\n"
+    "Статус: {status_label}\n"
+    "{photo_counter}"
+    "─────────────────\n"
+    "{body}"
+)
+
 # --- Аналитика ---
 ANALYTICS_SELECT_PERIOD = "Выберите период:"
 ANALYTICS_HEADER = "Аналитика за {period}"

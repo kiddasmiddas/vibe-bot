@@ -405,6 +405,7 @@ async def create_post(
                 text=body.text,
                 media_type=first_media.media_type if first_media else None,
                 media_file_id=first_media.file_id if first_media else None,
+                db_session=db,
             )
         except Exception as exc:
             logger.warning("feed post pending admin-notify failed: {}", exc)

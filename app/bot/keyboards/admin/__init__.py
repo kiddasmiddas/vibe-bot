@@ -86,6 +86,14 @@ class AdminReviewProfileCb(CallbackData, prefix="adm_rvp"):
     offset: int = 0
 
 
+class AdminFeedReviewCb(CallbackData, prefix="adm_frv"):
+    # action: hide|delete|del_comments|restrict|unrestrict|skip|menu
+    action: str
+    post_id: int = 0
+    offset: int = 0
+    status: str = "pending"  # pending|active|hidden
+
+
 # ---------------------------------------------------------------------------
 # Keyboard builders
 # ---------------------------------------------------------------------------
@@ -650,6 +658,84 @@ def feed_post_actions_kb(post_id: int, *, is_pending: bool) -> InlineKeyboardMar
     b.button(text=ADMIN_MENU_BTN_BACK, callback_data=AdminMenuCb(action="feed"))
     b.button(text=ADMIN_MENU_BTN_HOME, callback_data=AdminMenuCb(action="menu"))
     b.adjust(2)
+    return b.as_markup()
+
+
+def feed_review_card_kb(
+    *,
+    post_id: int,
+    offset: int,
+    status: str,
+) -> InlineKeyboardMarkup:
+    """Клавиатура edit-based карточки поста ленты (одиночный просмотр с пагинацией).
+
+    Для pending-постов первая строка — «✅ Одобрить | 🗑 Удалить (block)»;
+    для остальных статусов («active», «hidden_by_moderator») — «Скрыть | Удалить (block)».
+    Далее — управление комментариями, пропуск, навигация.
+    """
+    from app.texts.admin import (
+        ADMIN_MENU_BTN_BACK,
+        ADMIN_MENU_BTN_HOME,
+        FEED_BTN_APPROVE,
+        FEED_BTN_DEL_COMMENTS,
+        FEED_BTN_DELETE_BLOCK,
+        FEED_BTN_HIDE,
+        FEED_BTN_RESTRICT,
+        FEED_BTN_SKIP,
+        FEED_BTN_UNRESTRICT,
+    )
+
+    b = InlineKeyboardBuilder()
+    if status == "pending":
+        b.button(
+            text=FEED_BTN_APPROVE,
+            callback_data=AdminFeedReviewCb(
+                action="approve", post_id=post_id, offset=offset, status=status
+            ),
+        )
+    else:
+        b.button(
+            text=FEED_BTN_HIDE,
+            callback_data=AdminFeedReviewCb(
+                action="hide", post_id=post_id, offset=offset, status=status
+            ),
+        )
+    b.button(
+        text=FEED_BTN_DELETE_BLOCK,
+        callback_data=AdminFeedReviewCb(
+            action="delete", post_id=post_id, offset=offset, status=status
+        ),
+    )
+    b.button(
+        text=FEED_BTN_DEL_COMMENTS,
+        callback_data=AdminFeedReviewCb(
+            action="del_comments", post_id=post_id, offset=offset, status=status
+        ),
+    )
+    b.button(
+        text=FEED_BTN_RESTRICT,
+        callback_data=AdminFeedReviewCb(
+            action="restrict", post_id=post_id, offset=offset, status=status
+        ),
+    )
+    b.button(
+        text=FEED_BTN_UNRESTRICT,
+        callback_data=AdminFeedReviewCb(
+            action="unrestrict", post_id=post_id, offset=offset, status=status
+        ),
+    )
+    b.button(
+        text=FEED_BTN_SKIP,
+        callback_data=AdminFeedReviewCb(
+            action="skip", post_id=post_id, offset=offset + 1, status=status
+        ),
+    )
+    b.button(
+        text=ADMIN_MENU_BTN_BACK,
+        callback_data=AdminFeedReviewCb(action="menu", post_id=0, offset=0, status=status),
+    )
+    b.button(text=ADMIN_MENU_BTN_HOME, callback_data=AdminMenuCb(action="menu"))
+    b.adjust(2, 2, 3, 1)
     return b.as_markup()
 
 

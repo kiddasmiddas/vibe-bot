@@ -1142,14 +1142,15 @@ async def _finalize_registration(
     )
     await message.answer(final_text, reply_markup=main_menu_kb(is_registered=True))
 
-    # Анкета ушла на ручную модерацию медиа — уведомляем админов, чтобы они
-    # могли оперативно одобрить её через /admin → «На проверке».
+    # Анкета ушла на ручную модерацию медиа — уведомляем админов и модераторов,
+    # чтобы они могли оперативно одобрить её через /admin → «На проверке».
     if profile.is_pending_review:
         await notify_admins_profile_pending(
             bot,
             user_id=user.id,
             telegram_id=user.telegram_id,
             nickname=profile.nickname,
+            db_session=db_session,
         )
 
 

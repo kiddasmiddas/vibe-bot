@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from html import escape as _html_escape
+
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import StateFilter
@@ -22,7 +24,7 @@ from app.bot.keyboards.complaints import (
     reasons_kb,
 )
 from app.bot.states.complaints import ComplaintStates
-from app.config import settings as app_settings
+from app.config import settings
 from app.db.models.dictionaries import ComplaintReason
 from app.db.models.user import User
 from app.db.repositories.analytics_repo import AnalyticsRepository
@@ -92,30 +94,30 @@ async def _notify_admins_about_complaint(
     reason_title: str,
     comment: str | None,
 ) -> None:
-    """Шлёт уведомление каждому админу из `settings.admin_telegram_ids`.
+    """Шлёт уведомление о жалобе администраторам из env.
 
-    Ошибка отправки одному админу не блокирует уведомление остальных.
+    Жалобы — чувствительные данные (никнеймы, tg-ссылки на участников), поэтому
+    рассылаются только админам из `settings.admin_telegram_ids`, без модераторов.
+    User-supplied поля экранируются — шаблон рендерится с parse_mode=HTML и
+    содержит активные tg://-ссылки, инъекция HTML недопустима.
     """
-    admin_ids = app_settings.admin_telegram_ids
-    if not admin_ids:
-        logger.warning(
-            "complaint #{}: no admins configured to notify",
-            complaint_id,
-        )
+    recipient_ids = list(settings.admin_telegram_ids)
+    if not recipient_ids:
+        logger.warning("complaint #{}: no admins configured to notify", complaint_id)
         return
 
     text = texts.ADMIN_NOTIFY_TEMPLATE.format(
         complaint_id=complaint_id,
-        from_nickname=from_nickname,
+        from_nickname=_html_escape(from_nickname),
         from_id=from_user.id,
         from_tg_id=from_user.telegram_id,
-        target_nickname=target_nickname,
+        target_nickname=_html_escape(target_nickname),
         target_id=target_user.id,
         target_tg_id=target_user.telegram_id,
-        reason=reason_title,
-        comment=comment or "—",
+        reason=_html_escape(reason_title),
+        comment=_html_escape(comment or "—"),
     )
-    for admin_id in admin_ids:
+    for admin_id in recipient_ids:
         try:
             await bot.send_message(chat_id=admin_id, text=text, parse_mode="HTML")
         except TelegramAPIError as exc:

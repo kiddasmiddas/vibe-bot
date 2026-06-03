@@ -1351,6 +1351,7 @@ async def on_edit_media(
             user_id=user.id,
             telegram_id=user.telegram_id,
             nickname=fresh.nickname,
+            db_session=db_session,
         )
     else:
         await message.answer(texts.EDITED_OK)

@@ -357,6 +357,21 @@ class FeedRepository:
         await self._session.execute(stmt)
         await self._session.flush()
 
+    async def count_pending_review_posts(self) -> int:
+        """Число постов, ожидающих ручной проверки (is_pending_review=True, status='active')."""
+        stmt = select(func.count()).where(
+            FeedPost.is_pending_review.is_(True),
+            FeedPost.status == "active",
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one()
+
+    async def count_posts_by_status(self, status: str) -> int:
+        """Число постов с заданным статусом."""
+        stmt = select(func.count()).where(FeedPost.status == status)
+        result = await self._session.execute(stmt)
+        return result.scalar_one()
+
     async def list_pending_review_posts(self, limit: int = 20, offset: int = 0) -> list[FeedPost]:
         """Список постов, ожидающих ручной проверки (is_pending_review=True).
 

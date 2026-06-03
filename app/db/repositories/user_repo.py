@@ -139,3 +139,15 @@ class UserRepository:
         if exclude_user_id is not None:
             stmt = stmt.where(User.id != exclude_user_id)
         return list((await self._session.execute(stmt)).scalars().all())
+
+    async def list_moderators(self) -> list[User]:
+        """Возвращает активных модераторов (is_moderator=True, is_banned=False).
+
+        Используется для рассылки уведомлений о новых анкетах и постах Ленты
+        на проверку — вместе с env-адресами admin_telegram_ids.
+        """
+        stmt = select(User).where(
+            User.is_moderator.is_(True),
+            User.is_banned.is_(False),
+        )
+        return list((await self._session.execute(stmt)).scalars().all())
