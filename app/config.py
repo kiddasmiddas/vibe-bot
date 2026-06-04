@@ -33,6 +33,11 @@ class Settings(BaseSettings):
 
     admin_telegram_ids: Annotated[list[int], NoDecode] = Field(default_factory=list)
 
+    # Отдельный приватный TG-канал, куда бот шлёт пользовательские медиа при
+    # /api/feed/upload, чтобы получить file_id, не засоряя личку администраторов.
+    # Если не задан — fallback на admin_telegram_ids[0] (с warning в лог).
+    media_staging_chat_id: int | None = None
+
     log_level: str = "INFO"
     environment: Environment = "dev"
 

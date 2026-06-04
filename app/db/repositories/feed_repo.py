@@ -236,7 +236,12 @@ class FeedRepository:
     ) -> tuple[list[FeedComment], tuple[datetime, int] | None]:
         """Активные комментарии поста с курсорной пагинацией.
 
-        ORDER BY created_at DESC, id DESC. Возвращает только status='active'.
+        ORDER BY created_at ASC, id ASC — старые комментарии первыми, новые внизу
+        (как в чатах). Возвращает только status='active'.
+
+        Курсор кодирует (created_at, id) последнего возвращённого комментария.
+        Следующая страница — это комментарии, которые ХРОНОЛОГИЧЕСКИ ПОЗЖЕ курсора:
+        `created_at > cursor_ts` или `(created_at == cursor_ts AND id > cursor_id)`.
         """
         base_filter = and_(
             FeedComment.post_id == post_id,
@@ -246,23 +251,23 @@ class FeedRepository:
         if cursor is not None:
             cursor_ts, cursor_id = cursor
             cursor_filter = or_(
-                FeedComment.created_at < cursor_ts,
+                FeedComment.created_at > cursor_ts,
                 and_(
                     FeedComment.created_at == cursor_ts,
-                    FeedComment.id < cursor_id,
+                    FeedComment.id > cursor_id,
                 ),
             )
             stmt = (
                 select(FeedComment)
                 .where(base_filter, cursor_filter)
-                .order_by(desc(FeedComment.created_at), desc(FeedComment.id))
+                .order_by(FeedComment.created_at, FeedComment.id)
                 .limit(limit)
             )
         else:
             stmt = (
                 select(FeedComment)
                 .where(base_filter)
-                .order_by(desc(FeedComment.created_at), desc(FeedComment.id))
+                .order_by(FeedComment.created_at, FeedComment.id)
                 .limit(limit)
             )
 

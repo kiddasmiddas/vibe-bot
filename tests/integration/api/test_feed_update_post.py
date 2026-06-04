@@ -127,7 +127,7 @@ def _stub_redis_for_feed(monkeypatch: pytest.MonkeyPatch) -> None:
     list_active_stop_words с Redis-кэшем. В тестовом окружении DNS `redis`
     не резолвится — без этой фикстуры падает socket.gaierror на ровном месте.
     """
-    from unittest.mock import AsyncMock
+    from unittest.mock import AsyncMock, MagicMock
 
     fake = AsyncMock()
     fake.get = AsyncMock(return_value=None)
@@ -135,6 +135,15 @@ def _stub_redis_for_feed(monkeypatch: pytest.MonkeyPatch) -> None:
     fake.delete = AsyncMock(return_value=0)
     fake.incr = AsyncMock(return_value=1)
     fake.expire = AsyncMock(return_value=True)
+    # pipeline() — синхронный билдер. AsyncMock тут даёт coroutine, который
+    # тихо проваливается в `_check_rate_limit` через `except Exception` —
+    # тест проходит, но rate-limit-ветка вообще не выполняется. Делаем
+    # синхронный mock, возвращающий AsyncMock с awaitable execute().
+    pipe = AsyncMock()
+    pipe.incr = MagicMock(return_value=None)
+    pipe.expire = MagicMock(return_value=None)
+    pipe.execute = AsyncMock(return_value=[1, True])
+    fake.pipeline = MagicMock(return_value=pipe)
     monkeypatch.setattr("app.api.routes.feed.get_redis", lambda: fake)
 
 

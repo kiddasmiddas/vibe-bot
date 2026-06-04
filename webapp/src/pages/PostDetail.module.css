@@ -122,7 +122,10 @@
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* contain — фото не растягивается и не обрезается; узкие/широкие кадры
+     показываются целиком, по бокам остаётся «letterbox» с тканевым фоном
+     .carouselSlide (см. background выше). */
+  object-fit: contain;
 }
 
 .carouselFallback {

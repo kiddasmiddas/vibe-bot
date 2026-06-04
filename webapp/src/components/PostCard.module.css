@@ -44,7 +44,11 @@
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* contain — карточки в списке Аллеи имеют фиксированное окно 4:3
+     (.photoWrapper c padding-top: 75%), фото не растягивается и не
+     обрезается, узкие/широкие кадры видны целиком с letterbox-полосами
+     поверх тканевого фона .photoWrapper. */
+  object-fit: contain;
   border-bottom: 3px solid var(--komfi-lime);
 }
 

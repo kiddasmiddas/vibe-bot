@@ -168,11 +168,26 @@ async def upload_feed_media(
     is_gif = content_type == "image/gif"
     bot = _get_upload_bot()
 
-    admin_ids = settings.admin_telegram_ids
-    if not admin_ids:
-        logger.error("ADMIN_TELEGRAM_IDS is empty — cannot upload media via bot")
-        raise HTTPException(status_code=503, detail="Media upload not configured")
-    chat_id = admin_ids[0]
+    # Предпочитаем выделенный staging-чат — личка админов не должна засоряться
+    # пользовательскими загрузками. Legacy-fallback на admin[0] оставлен, чтобы
+    # старые деплои не разваливались, если оператор забыл прописать новый env.
+    staging_chat_id = settings.media_staging_chat_id
+    if staging_chat_id is not None:
+        chat_id = staging_chat_id
+    else:
+        admin_ids = settings.admin_telegram_ids
+        if admin_ids:
+            logger.warning(
+                "MEDIA_STAGING_CHAT_ID is not set — falling back to ADMIN_TELEGRAM_IDS[0] "
+                "for /api/feed/upload. Configure a dedicated staging chat to stop spamming admins."
+            )
+            chat_id = admin_ids[0]
+        else:
+            logger.error(
+                "Neither MEDIA_STAGING_CHAT_ID nor ADMIN_TELEGRAM_IDS configured — "
+                "cannot upload media via bot"
+            )
+            raise HTTPException(status_code=503, detail="Media upload not configured")
 
     try:
         if is_gif:
