@@ -67,7 +67,7 @@ router = Router(name="profile")
 # чтобы не зависеть от внутренних имён модуля регистрации).
 _DEFAULT_NICKNAME_MIN = 2
 _DEFAULT_NICKNAME_MAX = 32
-_DEFAULT_MIN_AGE = 18
+_DEFAULT_MIN_AGE = 14
 _DEFAULT_MAX_AGE = 80
 _DEFAULT_BIO_MAX = 500
 

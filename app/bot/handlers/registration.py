@@ -64,7 +64,7 @@ router = Router(name="registration")
 # Fallback-значения для настроек (на случай, если settings не заполнены).
 _DEFAULT_NICKNAME_MIN = 2
 _DEFAULT_NICKNAME_MAX = 32
-_DEFAULT_MIN_AGE = 18
+_DEFAULT_MIN_AGE = 14
 _DEFAULT_MAX_AGE = 80
 _DEFAULT_BIO_MAX = 500
 

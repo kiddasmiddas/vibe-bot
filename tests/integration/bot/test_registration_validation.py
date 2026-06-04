@@ -112,13 +112,13 @@ async def test_age_below_min_rejected(db_session, storage) -> None:
     state = _fsm(storage)
     await state.set_state(RegistrationStates.age)
 
-    message = _mock_message("15")
+    message = _mock_message("10")
     await on_age(message, state, db_session)
 
     message.answer.assert_awaited_once()
     answered_text = message.answer.call_args.args[0]
-    # min_age=18 в seed, поэтому 15 должен быть отклонён.
-    assert "18" in answered_text
+    # min_age=14 в seed (понижено в миграции c4d8e7a2f9b1), 10 должен быть отклонён.
+    assert "14" in answered_text
     assert await state.get_state() == RegistrationStates.age.state
 
 
