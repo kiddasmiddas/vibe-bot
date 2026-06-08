@@ -6,8 +6,11 @@ import pytest
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
+from app.db.models.dictionaries import Fandom, Gender, Vibe
 from app.db.models.matching import Block, Dislike, Like, Match, ViewedProfile
+from app.db.models.profile import Profile
 from app.db.repositories.matching_repo import MatchingRepository
+from app.db.repositories.profile_repo import ProfileRepository
 from app.db.repositories.user_repo import UserRepository
 
 
@@ -316,6 +319,250 @@ async def test_delete_user_social_data_wipes_only_my_rows(db_session) -> None:
         )
     ).all()
     assert len(foreign_likes) == 1
+
+
+async def _seed_find_candidates_fixtures(db_session) -> dict:
+    """Готовит словари (Gender/Vibe/Fandom) для тестов find_candidates."""
+    male = (await db_session.execute(select(Gender).where(Gender.code == "male"))).scalar_one()
+    female = (await db_session.execute(select(Gender).where(Gender.code == "female"))).scalar_one()
+
+    vibe = Vibe(code="mr_vibe", title="V", number=12001, image_file_id="fv")
+    fandom_a = Fandom(code="mr_fandom_a", title="A")
+    fandom_b = Fandom(code="mr_fandom_b", title="B")
+    fandom_c = Fandom(code="mr_fandom_c", title="C")
+    db_session.add_all([vibe, fandom_a, fandom_b, fandom_c])
+    await db_session.flush()
+    return {
+        "male": male,
+        "female": female,
+        "vibe": vibe,
+        "fandom_a": fandom_a,
+        "fandom_b": fandom_b,
+        "fandom_c": fandom_c,
+    }
+
+
+async def _make_profile(
+    db_session,
+    *,
+    telegram_id: int,
+    gender_id: int,
+    looking_for_gender_ids: list[int],
+    own_vibe_id: int,
+    fandom_ids: list[int] | None = None,
+    city: str | None = None,
+    age: int = 25,
+) -> Profile:
+    user = await UserRepository(db_session).create(telegram_id=telegram_id)
+    repo = ProfileRepository(db_session)
+    profile = await repo.create(
+        user_id=user.id,
+        nickname=f"U{telegram_id}",
+        age=age,
+        gender_id=gender_id,
+        looking_for_age_min=18,
+        looking_for_age_max=60,
+        bio="bio",
+        city=city,
+        own_vibe_id=own_vibe_id,
+        main_media_type="photo",
+        main_media_file_id="file",
+        is_active=True,
+        is_hidden=False,
+        is_completed=True,
+        is_pending_review=False,
+    )
+    await repo.set_looking_for_genders(profile.id, looking_for_gender_ids)
+    if fandom_ids:
+        await repo.set_fandoms(profile.id, fandom_ids)
+    await db_session.flush()
+    return profile
+
+
+@pytest.mark.asyncio
+async def test_find_candidates_desired_fandom_filter_keeps_only_matching(db_session) -> None:
+    """desired_fandom_ids непустой → возвращаются только профили с пересечением фандомов."""
+    fx = await _seed_find_candidates_fixtures(db_session)
+    me = await _make_profile(
+        db_session,
+        telegram_id=40001,
+        gender_id=fx["male"].id,
+        looking_for_gender_ids=[fx["female"].id],
+        own_vibe_id=fx["vibe"].id,
+    )
+    matching = await _make_profile(
+        db_session,
+        telegram_id=40002,
+        gender_id=fx["female"].id,
+        looking_for_gender_ids=[fx["male"].id],
+        own_vibe_id=fx["vibe"].id,
+        fandom_ids=[fx["fandom_a"].id],  # совпадает с desired
+    )
+    non_matching = await _make_profile(
+        db_session,
+        telegram_id=40003,
+        gender_id=fx["female"].id,
+        looking_for_gender_ids=[fx["male"].id],
+        own_vibe_id=fx["vibe"].id,
+        fandom_ids=[fx["fandom_c"].id],  # НЕ совпадает
+    )
+    no_fandoms = await _make_profile(
+        db_session,
+        telegram_id=40004,
+        gender_id=fx["female"].id,
+        looking_for_gender_ids=[fx["male"].id],
+        own_vibe_id=fx["vibe"].id,
+        fandom_ids=None,  # вообще без фандомов
+    )
+
+    repo = MatchingRepository(db_session)
+    results = await repo.find_candidates(
+        my_profile=me,
+        my_looking_for_gender_ids=[fx["female"].id],
+        excluded_user_ids={me.user_id},
+        desired_fandom_ids=frozenset({fx["fandom_a"].id, fx["fandom_b"].id}),
+    )
+    ids = {p.user_id for p in results}
+    assert matching.user_id in ids
+    assert non_matching.user_id not in ids
+    assert no_fandoms.user_id not in ids
+
+
+@pytest.mark.asyncio
+async def test_find_candidates_desired_fandom_none_includes_all(db_session) -> None:
+    """desired_fandom_ids=None → фильтр по фандомам не применяется."""
+    fx = await _seed_find_candidates_fixtures(db_session)
+    me = await _make_profile(
+        db_session,
+        telegram_id=40010,
+        gender_id=fx["male"].id,
+        looking_for_gender_ids=[fx["female"].id],
+        own_vibe_id=fx["vibe"].id,
+    )
+    with_fandom = await _make_profile(
+        db_session,
+        telegram_id=40011,
+        gender_id=fx["female"].id,
+        looking_for_gender_ids=[fx["male"].id],
+        own_vibe_id=fx["vibe"].id,
+        fandom_ids=[fx["fandom_c"].id],
+    )
+    no_fandoms = await _make_profile(
+        db_session,
+        telegram_id=40012,
+        gender_id=fx["female"].id,
+        looking_for_gender_ids=[fx["male"].id],
+        own_vibe_id=fx["vibe"].id,
+        fandom_ids=None,
+    )
+
+    repo = MatchingRepository(db_session)
+    results = await repo.find_candidates(
+        my_profile=me,
+        my_looking_for_gender_ids=[fx["female"].id],
+        excluded_user_ids={me.user_id},
+        desired_fandom_ids=None,  # фильтр выключен
+    )
+    ids = {p.user_id for p in results}
+    assert with_fandom.user_id in ids
+    assert no_fandoms.user_id in ids
+
+
+@pytest.mark.asyncio
+async def test_find_candidates_desired_fandom_empty_disables_filter(db_session) -> None:
+    """desired_fandom_ids=frozenset() → фильтр НЕ применяется (трактуется как «любой»)."""
+    fx = await _seed_find_candidates_fixtures(db_session)
+    me = await _make_profile(
+        db_session,
+        telegram_id=40020,
+        gender_id=fx["male"].id,
+        looking_for_gender_ids=[fx["female"].id],
+        own_vibe_id=fx["vibe"].id,
+    )
+    with_fandom = await _make_profile(
+        db_session,
+        telegram_id=40021,
+        gender_id=fx["female"].id,
+        looking_for_gender_ids=[fx["male"].id],
+        own_vibe_id=fx["vibe"].id,
+        fandom_ids=[fx["fandom_c"].id],
+    )
+    no_fandoms = await _make_profile(
+        db_session,
+        telegram_id=40022,
+        gender_id=fx["female"].id,
+        looking_for_gender_ids=[fx["male"].id],
+        own_vibe_id=fx["vibe"].id,
+        fandom_ids=None,
+    )
+
+    repo = MatchingRepository(db_session)
+    results = await repo.find_candidates(
+        my_profile=me,
+        my_looking_for_gender_ids=[fx["female"].id],
+        excluded_user_ids={me.user_id},
+        desired_fandom_ids=frozenset(),  # пусто = «любой»
+    )
+    ids = {p.user_id for p in results}
+    assert with_fandom.user_id in ids
+    assert no_fandoms.user_id in ids
+
+
+@pytest.mark.asyncio
+async def test_find_candidates_desired_fandom_combined_with_city(db_session) -> None:
+    """desired_fandom_ids + city_filter работают вместе как AND."""
+    fx = await _seed_find_candidates_fixtures(db_session)
+    me = await _make_profile(
+        db_session,
+        telegram_id=40030,
+        gender_id=fx["male"].id,
+        looking_for_gender_ids=[fx["female"].id],
+        own_vibe_id=fx["vibe"].id,
+        city="Москва",
+    )
+    # Подходит: правильный город И правильный фандом.
+    ok = await _make_profile(
+        db_session,
+        telegram_id=40031,
+        gender_id=fx["female"].id,
+        looking_for_gender_ids=[fx["male"].id],
+        own_vibe_id=fx["vibe"].id,
+        city="Москва",
+        fandom_ids=[fx["fandom_a"].id],
+    )
+    # Город не тот.
+    wrong_city = await _make_profile(
+        db_session,
+        telegram_id=40032,
+        gender_id=fx["female"].id,
+        looking_for_gender_ids=[fx["male"].id],
+        own_vibe_id=fx["vibe"].id,
+        city="Владивосток",
+        fandom_ids=[fx["fandom_a"].id],
+    )
+    # Фандом не тот.
+    wrong_fandom = await _make_profile(
+        db_session,
+        telegram_id=40033,
+        gender_id=fx["female"].id,
+        looking_for_gender_ids=[fx["male"].id],
+        own_vibe_id=fx["vibe"].id,
+        city="Москва",
+        fandom_ids=[fx["fandom_c"].id],
+    )
+
+    repo = MatchingRepository(db_session)
+    results = await repo.find_candidates(
+        my_profile=me,
+        my_looking_for_gender_ids=[fx["female"].id],
+        excluded_user_ids={me.user_id},
+        city_filter=["Москва"],
+        desired_fandom_ids=frozenset({fx["fandom_a"].id, fx["fandom_b"].id}),
+    )
+    ids = {p.user_id for p in results}
+    assert ids == {ok.user_id}
+    assert wrong_city.user_id not in ids
+    assert wrong_fandom.user_id not in ids
 
 
 @pytest.mark.asyncio

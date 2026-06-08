@@ -364,6 +364,156 @@ async def test_vibe_hard_filter_empty_when_desired_is_empty() -> None:
 
 
 # ---------------------------------------------------------------------------
+# desired_fandom_ids fallback в каскаде (Stage 2/3) — НЕ применяется в Stage 1
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cascade_stage1_does_not_pass_desired_fandom_filter() -> None:
+    """Stage 1 (свой город) НЕ применяет хард-фильтр по фандомам — внутри
+    своего города показываем всех релевантных, фандомы остаются мягким
+    скорингом."""
+    my_prof = _profile(city="Казань", desired_vibe_id=5)
+    cand = _profile(profile_id=2, user_id=2, city="Казань")
+
+    repo = MagicMock()
+    repo.find_candidates = AsyncMock(return_value=[cand])
+
+    svc = _make_service(repo)
+    await svc._fetch_candidates_cascade(
+        my_profile=my_prof,
+        my_looking_for_gender_ids=[1],
+        excluded_user_ids=set(),
+        desired_vibe_ids=frozenset({5}),
+        desired_fandom_ids=frozenset({10, 11}),  # юзер любит фандомы 10, 11
+    )
+    # Stage 1 был вызван с desired_fandom_ids=None — НИКАКОГО фильтра по фандомам.
+    call_kwargs = repo.find_candidates.call_args_list[0].kwargs
+    assert call_kwargs["city_filter"] == ["Казань"]
+    assert call_kwargs["desired_fandom_ids"] is None
+
+
+@pytest.mark.asyncio
+async def test_cascade_stage2_passes_desired_fandom_filter() -> None:
+    """Stage 2 (соседние города) применяет хард-фильтр по desired_fandom_ids."""
+    my_prof = _profile(city="Казань", desired_vibe_id=None)
+    cand = _profile(profile_id=2, user_id=2, city="Набережные Челны")
+
+    # Stage 1 → пусто, Stage 2 → [cand].
+    repo = MagicMock()
+    repo.find_candidates = AsyncMock(side_effect=[[], [cand]])
+
+    svc = _make_service(repo)
+
+    with patch("app.services.matching_service.get_geo_service") as mock_geo_factory:
+        mock_geo = MagicMock()
+        mock_geo.neighbor_cities.return_value = ["Набережные Челны"]
+        mock_geo_factory.return_value = mock_geo
+
+        await svc._fetch_candidates_cascade(
+            my_profile=my_prof,
+            my_looking_for_gender_ids=[1],
+            excluded_user_ids=set(),
+            desired_vibe_ids=frozenset(),
+            desired_fandom_ids=frozenset({10, 11}),
+        )
+
+    # Stage 2 = второй вызов; должен нести desired_fandom_ids=frozenset({10,11}).
+    stage2_kwargs = repo.find_candidates.call_args_list[1].kwargs
+    assert stage2_kwargs["city_filter"] == ["Набережные Челны"]
+    assert stage2_kwargs["desired_fandom_ids"] == frozenset({10, 11})
+    # А Stage 1 — без фильтра.
+    stage1_kwargs = repo.find_candidates.call_args_list[0].kwargs
+    assert stage1_kwargs["desired_fandom_ids"] is None
+
+
+@pytest.mark.asyncio
+async def test_cascade_stage3_passes_desired_fandom_filter() -> None:
+    """Stage 3 (глобальная выдача) применяет хард-фильтр по desired_fandom_ids."""
+    my_prof = _profile(city="Казань", desired_vibe_id=None)
+    cand = _profile(profile_id=2, user_id=2, city="Владивосток")
+
+    # Stage 1 → [], Stage 2 → [], Stage 3 → [cand].
+    repo = MagicMock()
+    repo.find_candidates = AsyncMock(side_effect=[[], [], [cand]])
+
+    svc = _make_service(repo)
+
+    with patch("app.services.matching_service.get_geo_service") as mock_geo_factory:
+        mock_geo = MagicMock()
+        mock_geo.neighbor_cities.return_value = ["Набережные Челны"]
+        mock_geo_factory.return_value = mock_geo
+
+        await svc._fetch_candidates_cascade(
+            my_profile=my_prof,
+            my_looking_for_gender_ids=[1],
+            excluded_user_ids=set(),
+            desired_vibe_ids=frozenset(),
+            desired_fandom_ids=frozenset({42}),
+        )
+
+    stage3_kwargs = repo.find_candidates.call_args_list[2].kwargs
+    assert stage3_kwargs["city_filter"] is None
+    assert stage3_kwargs["desired_fandom_ids"] == frozenset({42})
+
+
+@pytest.mark.asyncio
+async def test_cascade_empty_desired_fandoms_disables_filter_everywhere() -> None:
+    """Если у юзера desired_fandom_ids пуст — фильтр НЕ применяется ни на одном
+    стейдже (передаётся None в репозиторий)."""
+    my_prof = _profile(city="Казань", desired_vibe_id=None)
+    cand = _profile(profile_id=2, user_id=2, city="Владивосток")
+
+    repo = MagicMock()
+    repo.find_candidates = AsyncMock(side_effect=[[], [], [cand]])
+
+    svc = _make_service(repo)
+
+    with patch("app.services.matching_service.get_geo_service") as mock_geo_factory:
+        mock_geo = MagicMock()
+        mock_geo.neighbor_cities.return_value = ["Набережные Челны"]
+        mock_geo_factory.return_value = mock_geo
+
+        await svc._fetch_candidates_cascade(
+            my_profile=my_prof,
+            my_looking_for_gender_ids=[1],
+            excluded_user_ids=set(),
+            desired_vibe_ids=frozenset(),
+            desired_fandom_ids=frozenset(),  # пусто
+        )
+
+    # Все три стейджа — desired_fandom_ids=None.
+    for idx in range(3):
+        kwargs = repo.find_candidates.call_args_list[idx].kwargs
+        assert kwargs["desired_fandom_ids"] is None, f"stage {idx + 1} should not filter fandoms"
+
+
+@pytest.mark.asyncio
+async def test_cascade_city_none_applies_desired_fandom_filter() -> None:
+    """Если у юзера city IS NULL — сразу глобал, и квалифицированный fallback
+    по фандомам применяется (как для Stage 3)."""
+    my_prof = _profile(city=None, desired_vibe_id=None)
+    cand = _profile(profile_id=2, user_id=2, city="Москва")
+
+    repo = MagicMock()
+    repo.find_candidates = AsyncMock(return_value=[cand])
+
+    svc = _make_service(repo)
+    await svc._fetch_candidates_cascade(
+        my_profile=my_prof,
+        my_looking_for_gender_ids=[1],
+        excluded_user_ids=set(),
+        desired_vibe_ids=frozenset(),
+        desired_fandom_ids=frozenset({7}),
+    )
+
+    assert repo.find_candidates.call_count == 1
+    call_kwargs = repo.find_candidates.call_args.kwargs
+    assert call_kwargs["city_filter"] is None
+    assert call_kwargs["desired_fandom_ids"] == frozenset({7})
+
+
+# ---------------------------------------------------------------------------
 # CandidateResult invariants
 # ---------------------------------------------------------------------------
 

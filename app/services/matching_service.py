@@ -6,6 +6,10 @@
    за last `view_cooldown_days` дней).
    Добавлена каскадная фильтрация по городу (Stage 1 → Stage 2 → Stage 3 global)
    и хард-фильтр по вайбу (если searcher.desired_vibe_id IS NOT NULL).
+   На Stage 2/3 (выход за пределы своего города) дополнительно применяется
+   квалифицированный fallback по фандомам: оставляем только тех, у кого хоть
+   один фандом из моих desired_fandoms. Stage 1 (свой город) фандомы не
+   фильтрует — внутри города релевантность поддерживается локальностью.
 2. Скоринг в Python: для топа кандидатов (до 200) суммируется взвешенный вклад
    фандомов, желаемых фандомов, интересов и совпадения вайбов + recency-бонус.
 3. Веса читаются из `app_settings` через `SettingsRepository`. При отсутствии
@@ -279,12 +283,16 @@ class MatchingService:
         my_desired_vibe_ids: frozenset[int] = frozenset(
             await self._profile_repo.get_desired_vibe_ids(my_profile.id)
         )
+        my_desired_fandom_ids: frozenset[int] = frozenset(
+            await self._profile_repo.get_desired_fandom_ids(my_profile.id)
+        )
 
         candidates, from_neighbor_city, from_other_region = await self._fetch_candidates_cascade(
             my_profile=my_profile,
             my_looking_for_gender_ids=my_looking_for_gender_ids,
             excluded_user_ids=excluded,
             desired_vibe_ids=my_desired_vibe_ids,
+            desired_fandom_ids=my_desired_fandom_ids,
         )
 
         if not candidates:
@@ -298,9 +306,7 @@ class MatchingService:
 
         my_relations = CandidateRelations(
             fandom_ids=frozenset(await self._profile_repo.get_fandom_ids(my_profile.id)),
-            desired_fandom_ids=frozenset(
-                await self._profile_repo.get_desired_fandom_ids(my_profile.id)
-            ),
+            desired_fandom_ids=my_desired_fandom_ids,
             interest_ids=frozenset(await self._profile_repo.get_interest_ids(my_profile.id)),
             desired_vibe_ids=my_desired_vibe_ids,
         )
@@ -340,6 +346,7 @@ class MatchingService:
         my_looking_for_gender_ids: list[int],
         excluded_user_ids: set[int],
         desired_vibe_ids: frozenset[int],
+        desired_fandom_ids: frozenset[int] = frozenset(),
     ) -> tuple[list[Profile], bool, bool]:
         """Каскадная выборка кандидатов по городу.
 
@@ -352,6 +359,13 @@ class MatchingService:
         Примечание: все кандидаты одного Stage несут одинаковые флаги. Это
         обоснованно: если пул включает и Stage-1 и Stage-2, мы никогда не
         попадём в эту ситуацию — только один Stage активен единовременно.
+
+        Квалифицированный fallback: в Stage 2 и Stage 3 (выход за пределы
+        своего города) дополнительно применяем хард-фильтр по
+        `desired_fandom_ids` — оставляем только кандидатов, у которых хотя бы
+        один фандом совпадает с моими desired. Stage 1 (свой город) этот
+        фильтр НЕ применяет: локально мы готовы видеть всех. Если у юзера
+        desired_fandom_ids пуст — фильтр выключен на всех стейджах.
         """
         common_kwargs: dict = dict(
             my_profile=my_profile,
@@ -361,39 +375,71 @@ class MatchingService:
             desired_vibe_ids=desired_vibe_ids,
         )
 
+        # Хард-фильтр по фандомам активен только при выходе за свой город.
+        # Stage 1 (свой город) фильтр не применяет — внутри города показываем
+        # всех релевантных, фандомы остаются мягким скорингом.
+        fandom_filter_outside = desired_fandom_ids if desired_fandom_ids else None
+
         my_city = my_profile.city
 
         if my_city is None:
-            # city IS NULL → city-filter не применяем.
+            # city IS NULL → city-filter не применяем. Это «уже глобал» с точки
+            # зрения каскада, поэтому применяем квалифицированный fallback по
+            # фандомам, как для Stage 3.
             candidates = await self._matching_repo.find_candidates(
                 **common_kwargs,
                 city_filter=None,
+                desired_fandom_ids=fandom_filter_outside,
+            )
+            logger.info(
+                "matching cascade: city IS NULL → global, stage_returned=3, candidates_count={}",
+                len(candidates),
             )
             return candidates, False, False
 
-        # Stage 1: точное совпадение города.
+        # Stage 1: точное совпадение города. БЕЗ фильтра по фандомам.
         stage1 = await self._matching_repo.find_candidates(
             **common_kwargs,
             city_filter=[my_city],
+            desired_fandom_ids=None,
         )
         if stage1:
+            logger.info(
+                "matching cascade: stage_returned=1, candidates_count={}, city={}",
+                len(stage1),
+                my_city,
+            )
             return stage1, False, False
 
         # Stage 2: соседние города того же региона (через GeoService).
+        # Включаем квалифицированный fallback по фандомам.
         geo = get_geo_service()
         neighbors = geo.neighbor_cities(my_city, exclude_self=True)
         if neighbors:
             stage2 = await self._matching_repo.find_candidates(
                 **common_kwargs,
                 city_filter=neighbors,
+                desired_fandom_ids=fandom_filter_outside,
             )
             if stage2:
+                logger.info(
+                    "matching cascade: stage_returned=2, candidates_count={}, neighbors_count={}",
+                    len(stage2),
+                    len(neighbors),
+                )
                 return stage2, True, False
 
         # Stage 3: глобальная выдача — без фильтра по городу.
+        # Включаем квалифицированный fallback по фандомам.
         stage3 = await self._matching_repo.find_candidates(
             **common_kwargs,
             city_filter=None,
+            desired_fandom_ids=fandom_filter_outside,
+        )
+        logger.info(
+            "matching cascade: stage_returned=3, candidates_count={}, desired_fandom_filter={}",
+            len(stage3),
+            bool(fandom_filter_outside),
         )
         return stage3, False, True
 

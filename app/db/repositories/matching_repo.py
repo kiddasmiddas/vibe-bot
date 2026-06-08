@@ -192,6 +192,7 @@ class MatchingRepository:
         limit: int = 200,
         desired_vibe_ids: frozenset[int] | None = None,
         city_filter: list[str] | None = None,
+        desired_fandom_ids: frozenset[int] | None = None,
     ) -> list[Profile]:
         """Жёсткие фильтры мэтчинга. Скоринг — на стороне сервиса.
 
@@ -206,6 +207,13 @@ class MatchingRepository:
           — фильтр по вайбу не применяется.
         * `city_filter` (optional): кандидат's `city` должен входить в список.
           Если None — фильтр по городу не применяется (глобальная выдача).
+        * `desired_fandom_ids` (optional): набор моих _желаемых_ фандомов
+          (источник — `ProfileDesiredFandom` вызывающего). Хотя бы один из
+          фандомов КАНДИДАТА (из `ProfileFandom`) должен входить в этот набор —
+          то есть совпадение «их фандом ∈ мои желаемые». Пустой frozenset
+          или None означают «фильтр не применяется». Используется в Stage 2/3
+          каскада: когда выходим за пределы города, оставляем только тех,
+          у кого совпадает хоть один фандом из моих desired.
         """
         # Подзапрос: профили, у которых мой пол стоит в desired-полях.
         subq_their_lfg = select(ProfileLookingForGender.profile_id).where(
@@ -237,6 +245,16 @@ class MatchingRepository:
         # City filter: применяется только когда передан непустой список городов.
         if city_filter:
             conditions.append(Profile.city.in_(city_filter))
+
+        # Квалифицированный fallback по фандомам: при выходе за свой город
+        # (Stage 2/3 каскада) оставляем только тех, у кого хотя бы один из
+        # фандомов входит в мои desired_fandom_ids. Пустой/None — фильтр не
+        # применяется.
+        if desired_fandom_ids:
+            subq_their_fandoms = select(ProfileFandom.profile_id).where(
+                ProfileFandom.fandom_id.in_(desired_fandom_ids)
+            )
+            conditions.append(Profile.id.in_(subq_their_fandoms))
 
         stmt = select(Profile).where(*conditions).limit(limit)
         return list((await self._session.execute(stmt)).scalars().all())
