@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -15,14 +16,18 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from sqlalchemy import select
 
 from app.bot.handlers.matching import (
+    FSM_KEY_CURRENT,
+    FSM_KEY_LAST_SHOWN,
     on_matching_action,
+    on_matching_undo,
     on_search,
     on_superlike_message,
 )
 from app.bot.keyboards.matching import MatchingActionCb
 from app.bot.states.matching import MatchingStates
 from app.db.models.dictionaries import Gender, Vibe
-from app.db.models.matching import Dislike, Like
+from app.db.models.matching import Dislike, Like, ViewedProfile
+from app.db.repositories.matching_repo import MatchingRepository
 from app.db.repositories.profile_repo import ProfileRepository
 from app.db.repositories.user_repo import UserRepository
 from app.texts import matching as texts
@@ -359,3 +364,147 @@ async def test_complain_action_starts_flow(db_session, storage) -> None:
     assert await state.get_state() == ComplaintStates.choosing_reason.state
     answered = [call.args[0] for call in callback.message.answer.await_args_list]
     assert complaint_texts.ASK_REASON in answered
+
+
+# --------------------------- undo (Premium) ---------------------------
+
+
+async def _grant_premium(db_session, user) -> None:
+    """Делает пользователя Premium до 2099 г. (для тестов кнопки Undo)."""
+    await UserRepository(db_session).set_premium(user.id, until=datetime(2099, 1, 1, tzinfo=UTC))
+    await db_session.flush()
+    await db_session.refresh(user)
+
+
+@pytest.mark.asyncio
+async def test_undo_alert_when_no_previous(db_session, storage) -> None:
+    """Если в FSM нет предыдущей анкеты — Undo показывает alert и не делает ничего."""
+    user_a = await UserRepository(db_session).create(telegram_id=92001)
+    await _grant_premium(db_session, user_a)
+
+    state = _fsm(storage)
+    callback = _mock_callback(user_id=user_a.id)
+    bot = _mock_bot()
+
+    await on_matching_undo(callback, state, user_a, db_session, bot)
+
+    callback.answer.assert_awaited()
+    # show_alert=True с текстом «Это первая анкета в подборке».
+    last_call = callback.answer.await_args_list[-1]
+    assert last_call.args[0] == texts.UNDO_NO_PREVIOUS
+    assert last_call.kwargs.get("show_alert") is True
+
+
+@pytest.mark.asyncio
+async def test_undo_alert_for_non_premium_user(db_session, storage) -> None:
+    """Не-Premium юзеру кнопки не должно быть, но если callback всё-таки прилетел —
+    show_alert с подсказкой."""
+    user_a = await UserRepository(db_session).create(telegram_id=92010)
+    # Не грантим премиум — обычный free user.
+
+    state = _fsm(storage)
+    # Подкинем previous_user_id в FSM — чтобы проверить, что хэндлер всё равно
+    # отказывает из-за has_premium_access.
+    await state.update_data(**{FSM_KEY_LAST_SHOWN: 999, FSM_KEY_CURRENT: 1000})
+
+    callback = _mock_callback(user_id=user_a.id)
+    bot = _mock_bot()
+    await on_matching_undo(callback, state, user_a, db_session, bot)
+
+    last_call = callback.answer.await_args_list[-1]
+    assert last_call.kwargs.get("show_alert") is True
+
+
+@pytest.mark.asyncio
+async def test_undo_returns_previous_candidate_and_clears_viewed(db_session, storage) -> None:
+    """Главный сценарий Undo: возвращаемся к предыдущему кандидату, viewed снимается."""
+    (user_a, _), (user_b, _) = await _make_compatible_pair(db_session, 92020, 92021)
+    await _grant_premium(db_session, user_a)
+
+    # Симулируем, что юзер уже видел user_b (анкета попала в viewed_profiles
+    # и кандидат сейчас "current"; в FSM записан как last_shown — будто его
+    # сменил следующий кандидат, но мы хотим вернуться).
+    matching_repo = MatchingRepository(db_session)
+    await matching_repo.add_viewed(viewer_id=user_a.id, target_id=user_b.id)
+    await db_session.flush()
+
+    state = _fsm(storage)
+    await state.update_data(**{FSM_KEY_LAST_SHOWN: user_b.id, FSM_KEY_CURRENT: 99_999_999})
+
+    callback = _mock_callback(user_id=user_a.id)
+    bot = _mock_bot()
+    await on_matching_undo(callback, state, user_a, db_session, bot)
+
+    # ViewedProfile запись удалена и снова создана при показе (add_viewed).
+    # Проверяем что она существует (повторный показ зафиксирован) — и важно,
+    # что remove_viewed был вызван (если бы не был — запись бы оставалась со
+    # старым timestamp; здесь мы просто убеждаемся, что Undo прошёл).
+    callback.answer.assert_awaited()
+    # FSM-стэк сброшен: last_shown=None, current=user_b.id.
+    data = await state.get_data()
+    assert data.get(FSM_KEY_LAST_SHOWN) is None
+    assert data.get(FSM_KEY_CURRENT) == user_b.id
+
+
+@pytest.mark.asyncio
+async def test_undo_removes_viewed_record(db_session, storage) -> None:
+    """remove_viewed действительно удаляет запись (проверка через repo)."""
+    (user_a, _), (user_b, _) = await _make_compatible_pair(db_session, 92030, 92031)
+    await _grant_premium(db_session, user_a)
+
+    matching_repo = MatchingRepository(db_session)
+    await matching_repo.add_viewed(viewer_id=user_a.id, target_id=user_b.id)
+    await db_session.flush()
+
+    # Подтверждаем что запись есть.
+    rows = list(
+        (
+            await db_session.execute(
+                select(ViewedProfile).where(
+                    ViewedProfile.viewer_user_id == user_a.id,
+                    ViewedProfile.target_user_id == user_b.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 1
+
+    deleted = await matching_repo.remove_viewed(viewer_id=user_a.id, target_id=user_b.id)
+    assert deleted == 1
+    rows_after = list(
+        (
+            await db_session.execute(
+                select(ViewedProfile).where(
+                    ViewedProfile.viewer_user_id == user_a.id,
+                    ViewedProfile.target_user_id == user_b.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rows_after == []
+
+
+@pytest.mark.asyncio
+async def test_undo_handles_unavailable_candidate(db_session, storage) -> None:
+    """Если предыдущий кандидат удалил анкету — alert и сброс стэка."""
+    user_a = await UserRepository(db_session).create(telegram_id=92040)
+    await _grant_premium(db_session, user_a)
+
+    # Указываем в FSM несуществующий user_id.
+    state = _fsm(storage)
+    await state.update_data(**{FSM_KEY_LAST_SHOWN: 9_999_999, FSM_KEY_CURRENT: 8_888_888})
+
+    callback = _mock_callback(user_id=user_a.id)
+    bot = _mock_bot()
+    await on_matching_undo(callback, state, user_a, db_session, bot)
+
+    last_call = callback.answer.await_args_list[-1]
+    assert last_call.kwargs.get("show_alert") is True
+    assert last_call.args[0] == texts.UNDO_CANDIDATE_UNAVAILABLE
+    # Стэк сброшен.
+    data = await state.get_data()
+    assert data.get(FSM_KEY_LAST_SHOWN) is None

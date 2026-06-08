@@ -138,6 +138,21 @@ class MatchingRepository:
         await self._session.execute(stmt)
         await self._session.flush()
 
+    async def remove_viewed(self, viewer_id: int, target_id: int) -> int:
+        """Удаляет запись о просмотре. Возвращает количество удалённых строк (0/1).
+
+        Используется в Undo (Premium-фича) — чтобы кандидат, к которому юзер
+        вернулся «назад», не оставался в cooldown-исключениях и снова мог
+        попасть в выдачу.
+        """
+        stmt = delete(ViewedProfile).where(
+            ViewedProfile.viewer_user_id == viewer_id,
+            ViewedProfile.target_user_id == target_id,
+        )
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        return int(result.rowcount or 0)
+
     async def add_block(self, blocker_id: int, blocked_id: int) -> Block:
         block = Block(blocker_user_id=blocker_id, blocked_user_id=blocked_id)
         self._session.add(block)

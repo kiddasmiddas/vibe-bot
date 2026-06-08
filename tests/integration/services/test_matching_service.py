@@ -720,3 +720,312 @@ async def test_match_user_a_b_ordered(db_session) -> None:
     ).scalar_one()
     assert match.user_a_id == lower
     assert match.user_b_id == higher
+
+
+# --------------------------- like daily limit ---------------------------
+
+
+class _QuotaFakePipeline:
+    """Имитация redis.asyncio.client.Pipeline для тестов.
+
+    Накапливает команды (incr/expire) синхронно в очередь, на `execute()`
+    выполняет их по-очереди и возвращает список результатов — как реальный
+    Redis-pipeline.
+    """
+
+    def __init__(self, redis: _QuotaFakeRedis) -> None:
+        self._redis = redis
+        self._queue: list[tuple[str, tuple, dict]] = []
+
+    def incr(self, key: str) -> _QuotaFakePipeline:
+        self._queue.append(("incr", (key,), {}))
+        return self
+
+    def expire(self, key: str, ttl: int) -> _QuotaFakePipeline:
+        self._queue.append(("expire", (key, ttl), {}))
+        return self
+
+    async def execute(self) -> list:
+        results = []
+        for cmd, args, kwargs in self._queue:
+            fn = getattr(self._redis, cmd)
+            results.append(await fn(*args, **kwargs))
+        self._queue.clear()
+        return results
+
+
+class _QuotaFakeRedis:
+    """Минимальный in-memory Redis-обвес для тестов лимита лайков.
+
+    Поддерживает incr/decr/expire/get/delete/pipeline — достаточно для
+    `MatchingService._check_and_increment_like_quota`. TTL не моделируем —
+    тесты лимита не зависят от истечения (счётчик живёт в пределах теста).
+    """
+
+    def __init__(self) -> None:
+        self.store: dict[str, int] = {}
+
+    async def get(self, key: str) -> str | None:
+        value = self.store.get(key)
+        return None if value is None else str(value)
+
+    async def set(self, key: str, value: str, *, ex: int | None = None) -> None:
+        self.store[key] = int(value)
+
+    async def incr(self, key: str) -> int:
+        self.store[key] = self.store.get(key, 0) + 1
+        return self.store[key]
+
+    async def decr(self, key: str) -> int:
+        self.store[key] = self.store.get(key, 0) - 1
+        return self.store[key]
+
+    async def expire(self, key: str, ttl: int) -> bool:
+        return key in self.store
+
+    async def delete(self, key: str) -> None:
+        self.store.pop(key, None)
+
+    def pipeline(self) -> _QuotaFakePipeline:
+        # NB: реальный redis.asyncio.Redis().pipeline() тоже синхронный, queue
+        # коммитится по `await pipe.execute()`.
+        return _QuotaFakePipeline(self)
+
+
+def _service_with_redis(db_session, redis) -> MatchingService:
+    return MatchingService(
+        profile_repo=ProfileRepository(db_session),
+        matching_repo=MatchingRepository(db_session),
+        settings_repo=SettingsRepository(db_session),
+        dictionary_repo=DictionaryRepository(db_session),
+        user_repo=UserRepository(db_session),
+        session=db_session,
+        redis=redis,
+    )
+
+
+@pytest.mark.asyncio
+async def test_like_quota_increments_per_like(db_session) -> None:
+    """Каждый успешный лайк инкрементирует Redis-счётчик дневной квоты."""
+    user_a = await UserRepository(db_session).create(telegram_id=41001)
+    targets = [await UserRepository(db_session).create(telegram_id=41001 + i + 1) for i in range(3)]
+    redis = _QuotaFakeRedis()
+    service = _service_with_redis(db_session, redis)
+
+    for target in targets:
+        outcome = await service.process_like(
+            from_user_id=user_a.id,
+            to_user_id=target.id,
+            kind="like",
+            from_user=user_a,
+        )
+        assert outcome.like_recorded is True
+        assert outcome.daily_limit_reached is False
+
+    # Ключ Redis — один на дату, значение == числу лайков.
+    assert len(redis.store) == 1
+    assert next(iter(redis.store.values())) == 3
+
+
+@pytest.mark.asyncio
+async def test_like_quota_premium_user_bypasses_limit(db_session) -> None:
+    """Premium-пользователь обходит лимит: счётчик не трогается, лимит не действует."""
+    user_a = await UserRepository(db_session).create(telegram_id=41100)
+    # Поставим жёсткий лимит = 0, чтобы любой инкремент сразу попал бы под лимит.
+    await SettingsRepository(db_session).set("like_daily_limit", "0")
+    await UserRepository(db_session).set_premium(
+        user_a.id,
+        # Дата в будущем — это уже отдельная зона ответственности `is_premium`.
+        # Здесь нам важен только флаг.
+        until=__import__("datetime").datetime(2099, 1, 1, tzinfo=__import__("datetime").UTC),
+    )
+    await db_session.flush()
+    await db_session.refresh(user_a)
+
+    targets = [await UserRepository(db_session).create(telegram_id=41200 + i) for i in range(5)]
+    redis = _QuotaFakeRedis()
+    service = _service_with_redis(db_session, redis)
+
+    for target in targets:
+        outcome = await service.process_like(
+            from_user_id=user_a.id,
+            to_user_id=target.id,
+            kind="like",
+            from_user=user_a,
+        )
+        assert outcome.like_recorded is True
+        assert outcome.daily_limit_reached is False
+
+    # Счётчик не вырос — premium юзер не трогает Redis.
+    assert redis.store == {}
+
+
+@pytest.mark.asyncio
+async def test_like_quota_blocks_over_limit(db_session) -> None:
+    """31-й лайк (при лимите 30) отклоняется, like_recorded=False, daily_limit_reached=True."""
+    user_a = await UserRepository(db_session).create(telegram_id=41300)
+    await SettingsRepository(db_session).set("like_daily_limit", "30")
+    targets = [await UserRepository(db_session).create(telegram_id=41400 + i) for i in range(31)]
+    redis = _QuotaFakeRedis()
+    service = _service_with_redis(db_session, redis)
+
+    for target in targets[:30]:
+        outcome = await service.process_like(
+            from_user_id=user_a.id,
+            to_user_id=target.id,
+            kind="like",
+            from_user=user_a,
+        )
+        assert outcome.like_recorded is True
+        assert outcome.daily_limit_reached is False
+
+    # 31-й лайк — лимит превышен.
+    outcome = await service.process_like(
+        from_user_id=user_a.id,
+        to_user_id=targets[30].id,
+        kind="like",
+        from_user=user_a,
+    )
+    assert outcome.like_recorded is False
+    assert outcome.daily_limit_reached is True
+    # Счётчик откатился к лимиту: значение == 30, а не 31 (декремент компенсировал
+    # неудачную попытку).
+    assert next(iter(redis.store.values())) == 30
+    # И в БД 31-го Like нет.
+    likes = list(
+        (
+            await db_session.execute(
+                _select(Like).where(
+                    Like.from_user_id == user_a.id,
+                    Like.to_user_id == targets[30].id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert likes == []
+
+
+@pytest.mark.asyncio
+async def test_like_quota_duplicate_does_not_consume_quota(db_session) -> None:
+    """Дубликат лайка (UNIQUE-конфликт) не должен расходовать дневную квоту.
+
+    Сценарий: лайкнули один раз, потом случайно повторили клик. Счётчик
+    должен показать 1, а не 2 — декремент компенсирует инкремент дубликата.
+    """
+    user_a = await UserRepository(db_session).create(telegram_id=41500)
+    user_b = await UserRepository(db_session).create(telegram_id=41501)
+    redis = _QuotaFakeRedis()
+    service = _service_with_redis(db_session, redis)
+
+    first = await service.process_like(
+        from_user_id=user_a.id,
+        to_user_id=user_b.id,
+        kind="like",
+        from_user=user_a,
+    )
+    assert first.like_recorded is True
+    assert next(iter(redis.store.values())) == 1
+
+    dup = await service.process_like(
+        from_user_id=user_a.id,
+        to_user_id=user_b.id,
+        kind="like",
+        from_user=user_a,
+    )
+    assert dup.like_recorded is False
+    assert dup.daily_limit_reached is False
+    # После компенсации счётчик остался на 1.
+    assert next(iter(redis.store.values())) == 1
+
+
+@pytest.mark.asyncio
+async def test_like_quota_disabled_when_no_redis(db_session) -> None:
+    """Если redis=None в сервисе — лимит не применяется (fail-open)."""
+    user_a = await UserRepository(db_session).create(telegram_id=41600)
+    await SettingsRepository(db_session).set("like_daily_limit", "1")
+    targets = [await UserRepository(db_session).create(telegram_id=41700 + i) for i in range(3)]
+    # Создаём сервис без redis (как старые тесты) — лимит не трогается.
+    service = _service(db_session)
+    for target in targets:
+        outcome = await service.process_like(
+            from_user_id=user_a.id,
+            to_user_id=target.id,
+            kind="like",
+            from_user=user_a,
+        )
+        assert outcome.like_recorded is True
+        assert outcome.daily_limit_reached is False
+
+
+@pytest.mark.asyncio
+async def test_like_quota_superlike_counts_toward_same_budget(db_session) -> None:
+    """Superlike учитывается в том же дневном бюджете, что и обычный лайк."""
+    user_a = await UserRepository(db_session).create(telegram_id=41800)
+    await SettingsRepository(db_session).set("like_daily_limit", "2")
+    targets = [await UserRepository(db_session).create(telegram_id=41900 + i) for i in range(3)]
+    redis = _QuotaFakeRedis()
+    service = _service_with_redis(db_session, redis)
+
+    # 1-й — обычный лайк.
+    out1 = await service.process_like(
+        from_user_id=user_a.id,
+        to_user_id=targets[0].id,
+        kind="like",
+        from_user=user_a,
+    )
+    assert out1.like_recorded is True
+    # 2-й — superlike, всё ещё в лимите.
+    out2 = await service.process_like(
+        from_user_id=user_a.id,
+        to_user_id=targets[1].id,
+        kind="superlike",
+        message="hi",
+        from_user=user_a,
+    )
+    assert out2.like_recorded is True
+    # 3-й — должен упереться в общий лимит.
+    out3 = await service.process_like(
+        from_user_id=user_a.id,
+        to_user_id=targets[2].id,
+        kind="superlike",
+        message="hi again",
+        from_user=user_a,
+    )
+    assert out3.like_recorded is False
+    assert out3.daily_limit_reached is True
+
+
+@pytest.mark.asyncio
+async def test_like_quota_uses_default_when_setting_missing(db_session) -> None:
+    """Если ключ like_daily_limit не задан в settings — используется дефолт (30)."""
+    from app.db.repositories.settings_repo import DEFAULT_LIKE_DAILY_LIMIT
+
+    assert DEFAULT_LIKE_DAILY_LIMIT == 30
+    user_a = await UserRepository(db_session).create(telegram_id=42000)
+    redis = _QuotaFakeRedis()
+    service = _service_with_redis(db_session, redis)
+
+    # Не выставляем like_daily_limit в settings — должен сработать DEFAULT_LIKE_DAILY_LIMIT.
+    # 30 успешных лайков подряд.
+    targets = [
+        await UserRepository(db_session).create(telegram_id=42100 + i)
+        for i in range(DEFAULT_LIKE_DAILY_LIMIT + 1)
+    ]
+    for i in range(DEFAULT_LIKE_DAILY_LIMIT):
+        outcome = await service.process_like(
+            from_user_id=user_a.id,
+            to_user_id=targets[i].id,
+            kind="like",
+            from_user=user_a,
+        )
+        assert outcome.like_recorded is True
+    # 31-й — стоп.
+    outcome = await service.process_like(
+        from_user_id=user_a.id,
+        to_user_id=targets[DEFAULT_LIKE_DAILY_LIMIT].id,
+        kind="like",
+        from_user=user_a,
+    )
+    assert outcome.daily_limit_reached is True

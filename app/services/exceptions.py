@@ -46,3 +46,20 @@ class ContentRejectedError(ServiceError):
         super().__init__(reason)
         self.reason = reason
         self.matched_terms = matched_terms or []
+
+
+class LikeDailyLimitReached(ServiceError):
+    """Пользователь исчерпал дневной лимит лайков.
+
+    Бросается (или возвращается через `LikeOutcome.daily_limit_reached=True`)
+    из `MatchingService.process_like`, если у юзера нет Premium-доступа и
+    счётчик лайков за сутки достиг `like_daily_limit` (из `app_settings`).
+
+    Хэндлер должен показать пользователю предложение Premium / дождаться
+    следующего дня. Premium-юзеры (включая админов/модераторов) лимит не
+    видят — `has_premium_access` короткозамыкает проверку.
+    """
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(f"daily like limit reached ({limit})")
+        self.limit = limit

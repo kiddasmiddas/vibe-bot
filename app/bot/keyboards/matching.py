@@ -24,6 +24,15 @@ class SuperlikeCancelCb(CallbackData, prefix="slcancel"):
     """Callback кнопки «Отмена» под запросом текста для лайка с сообщением."""
 
 
+class MatchingUndoCb(CallbackData, prefix="mt_undo"):
+    """Callback кнопки «↩️ Назад» — возврат к предыдущей анкете (Premium).
+
+    Stack глубины 1 — поддерживается только один шаг назад. Идентификатор
+    предыдущего кандидата хранится в FSM, поэтому в callback_data ничего
+    дополнительного передавать не нужно.
+    """
+
+
 def superlike_cancel_kb() -> InlineKeyboardMarkup:
     """Клавиатура с одной кнопкой «Отмена» под запросом superlike-сообщения."""
     builder = InlineKeyboardBuilder()
@@ -31,14 +40,21 @@ def superlike_cancel_kb() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def actions_kb(target_user_id: int) -> InlineKeyboardMarkup:
+def actions_kb(target_user_id: int, *, show_undo: bool = False) -> InlineKeyboardMarkup:
     """Inline-клавиатура действий над карточкой кандидата.
 
-    Раскладка 2 + 1 + 3 — длинная кнопка «С сообщением» занимает целый ряд,
-    иначе на узких экранах (мобильный Telegram) её подпись обрезается:
+    Раскладка без `show_undo` — 2 + 1 + 3:
         [❤️ Лайк]   [👎 Дизлайк]
         [💬 С сообщением]
         [🚩 Жалоба] [🚫 Блок] [⏭]
+
+    При `show_undo=True` (Premium-доступ И есть предыдущая анкета в стэке)
+    под основными действиями добавляется отдельный ряд с одной кнопкой:
+        [↩️ Назад]
+
+    Free-юзеры этот ряд не видят — кнопка не рендерится. Это и UI-гейт,
+    и страховка от подмены callback_data (хэндлер всё равно перепроверяет
+    `has_premium_access`).
     """
     builder = InlineKeyboardBuilder()
     builder.button(
@@ -65,5 +81,9 @@ def actions_kb(target_user_id: int) -> InlineKeyboardMarkup:
         text=texts.BTN_SKIP,
         callback_data=MatchingActionCb(action="skip", target_user_id=target_user_id),
     )
-    builder.adjust(2, 1, 3)
+    if show_undo:
+        builder.button(text=texts.BTN_UNDO, callback_data=MatchingUndoCb())
+        builder.adjust(2, 1, 3, 1)
+    else:
+        builder.adjust(2, 1, 3)
     return builder.as_markup()

@@ -11,6 +11,12 @@ from app.db.models.settings import AppSetting
 CACHE_TTL_SECONDS = 60
 CACHE_KEY_PREFIX = "settings:"
 
+# Ключи продуктовых настроек, читаемых сервисами.
+# `like_daily_limit` — дневной лимит лайков для обычных пользователей.
+# Заведён в seed-миграции b1c4d7e8a2f3; Premium-доступ снимает ограничение.
+SETTING_LIKE_DAILY_LIMIT = "like_daily_limit"
+DEFAULT_LIKE_DAILY_LIMIT = 30
+
 
 class SettingsRepository:
     """Ключ-значение для продуктовых настроек. Значения всегда строки;

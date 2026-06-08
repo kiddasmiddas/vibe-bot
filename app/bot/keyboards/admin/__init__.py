@@ -94,6 +94,17 @@ class AdminFeedReviewCb(CallbackData, prefix="adm_frv"):
     status: str = "pending"  # pending|active|hidden
 
 
+class VibeByPhotoAssignCb(CallbackData, prefix="vbp_assign"):
+    """Модераторская кнопка с номером вайба для запроса «Вайб по фото».
+
+    action: 'pick' — назначить выбранный vibe_number; 'reject' — отказать.
+    """
+
+    action: str
+    request_id: int
+    vibe_number: int = 0
+
+
 # ---------------------------------------------------------------------------
 # Keyboard builders
 # ---------------------------------------------------------------------------
@@ -736,6 +747,38 @@ def feed_review_card_kb(
     )
     b.button(text=ADMIN_MENU_BTN_HOME, callback_data=AdminMenuCb(action="menu"))
     b.adjust(2, 2, 3, 1)
+    return b.as_markup()
+
+
+def vibe_by_photo_moderate_kb(
+    request_id: int,
+    *,
+    total_vibes: int = 36,
+    columns: int = 6,
+    reject_text: str = "❌ Отклонить",
+) -> InlineKeyboardMarkup:
+    """Клавиатура модератора для назначения вайба запросу «Вайб по фото».
+
+    Сетка из 36 кнопок (по умолчанию 6×6) с номерами вайбов 1..36 +
+    отдельная кнопка «Отклонить». При тапе по номеру модератор подбирает
+    вайб с соответствующим ``number`` в БД.
+    """
+    b = InlineKeyboardBuilder()
+    for n in range(1, total_vibes + 1):
+        b.button(
+            text=str(n),
+            callback_data=VibeByPhotoAssignCb(action="pick", request_id=request_id, vibe_number=n),
+        )
+    b.button(
+        text=reject_text,
+        callback_data=VibeByPhotoAssignCb(action="reject", request_id=request_id),
+    )
+    rows = [columns] * (total_vibes // columns)
+    # хвост, если осталось
+    if total_vibes % columns:
+        rows.append(total_vibes % columns)
+    rows.append(1)
+    b.adjust(*rows)
     return b.as_markup()
 
 

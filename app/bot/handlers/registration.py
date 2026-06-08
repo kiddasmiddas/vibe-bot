@@ -22,6 +22,7 @@ from loguru import logger
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.bot.keyboards.admin import vibe_by_photo_moderate_kb
 from app.bot.keyboards.main_menu import main_menu_kb
 from app.bot.keyboards.registration import (
     CaptchaCb,
@@ -29,12 +30,16 @@ from app.bot.keyboards.registration import (
     GenderCb,
     RegBackCb,
     VibeAnyCb,
+    VibeByPhotoCancelCb,
+    VibeByPhotoDoneCb,
+    VibeByPhotoStartCb,
     VibeDoneCb,
     VibePageCb,
     VibePickCb,
     build_captcha_kb,
     city_suggestions_kb,
     gender_kb,
+    vibe_by_photo_upload_kb,
 )
 from app.bot.states.registration import RegistrationStates
 from app.bot.utils.admin_notify import notify_admins_profile_pending
@@ -47,6 +52,7 @@ from app.bot.utils.vibe_picker import (
     edit_vibe_picker,
     send_vibe_picker,
 )
+from app.config import settings as app_settings
 from app.db.models.dictionaries import Fandom, Gender, Interest, Vibe
 from app.db.models.user import User
 from app.db.repositories.analytics_repo import AnalyticsRepository
@@ -54,11 +60,14 @@ from app.db.repositories.dictionary_repo import DictionaryRepository
 from app.db.repositories.moderation_repo import ModerationRepository
 from app.db.repositories.profile_repo import ProfileRepository
 from app.db.repositories.settings_repo import SettingsRepository
+from app.db.repositories.vibe_by_photo_repo import VibeByPhotoRepository
+from app.services.access import has_premium_access
 from app.services.analytics_events import EventType
 from app.services.content_moderation_service import ContentModerationService
 from app.services.geo_service import get_geo_service
 from app.texts import common as common_texts
 from app.texts import registration as texts
+from app.texts import vibe_by_photo as vbp_texts
 
 router = Router(name="registration")
 
@@ -257,6 +266,7 @@ async def on_create_profile_entry(
         RegistrationStates.own_vibe,
         RegistrationStates.desired_vibe,
         RegistrationStates.main_media,
+        RegistrationStates.vibe_by_photo_upload,
     ),
     Command("cancel"),
 )
@@ -768,18 +778,30 @@ async def _after_interests_done(
     message = callback.message
     if message is None:
         return
-    await _enter_own_vibe_step(message, state, db_session)
+    # Пробуем подтянуть User по telegram_id, чтобы показать Premium-кнопку
+    # «Вайб по фото» прямо на этом шаге. Если по какой-то причине не вышло —
+    # просто покажем пикер без неё.
+    from app.db.repositories.user_repo import UserRepository
+
+    user_obj: User | None = None
+    if callback.from_user is not None:
+        user_obj = await UserRepository(db_session).get_by_telegram_id(callback.from_user.id)
+    await _enter_own_vibe_step(message, state, db_session, user=user_obj)
 
 
 async def _enter_own_vibe_step(
     message: Message,
     state: FSMContext,
     db_session: AsyncSession,
+    *,
+    user: User | None,
 ) -> None:
     """Загружает активные вайбы и переводит FSM в шаг own_vibe.
 
     Если вайбов нет — сообщает и сбрасывает FSM, чтобы пользователь не
     застрял (см. DoD: бот не падает на edge-case пустого справочника).
+    Для Premium-пользователей внутри пикера показывается кнопка
+    «Вайб по фото».
     """
     vibes = await DictionaryRepository(db_session).list_active(Vibe)
     if not vibes:
@@ -791,8 +813,17 @@ async def _enter_own_vibe_step(
     bot = message.bot
     if bot is None:
         return
-    await send_vibe_picker(bot, message.chat.id, db_session, role="own", page=0)
-    await state.update_data(own_vibe_page=0)
+    show_vbp = user is not None and has_premium_access(user)
+    await send_vibe_picker(
+        bot,
+        message.chat.id,
+        db_session,
+        role="own",
+        page=0,
+        show_vibe_by_photo=show_vbp,
+        vibe_by_photo_origin="registration",
+    )
+    await state.update_data(own_vibe_page=0, vbp_premium=show_vbp)
     await state.set_state(RegistrationStates.own_vibe)
 
 
@@ -857,8 +888,16 @@ async def on_vibe_page_own(
 
     await callback.answer()
     await state.update_data(own_vibe_page=callback_data.page)
+    show_vbp = bool(data.get("vbp_premium", False))
     if callback.message is not None:
-        await edit_vibe_picker(callback.message, db_session, role="own", page=callback_data.page)
+        await edit_vibe_picker(
+            callback.message,
+            db_session,
+            role="own",
+            page=callback_data.page,
+            show_vibe_by_photo=show_vbp,
+            vibe_by_photo_origin="registration",
+        )
 
 
 # ----------------------------- 13. desired_vibe (callback picker, multi) --------------------------
@@ -970,6 +1009,217 @@ async def _back_to_desired_fandoms(
     if callback.message is not None:
         await _send_desired_fandoms_screen(callback.message, state, db_session)
     await state.set_state(RegistrationStates.desired_fandoms)
+
+
+# ----------------------------- 12a. vibe_by_photo (Premium) --------------------------
+
+
+@router.callback_query(StateFilter(RegistrationStates.own_vibe), VibeByPhotoStartCb.filter())
+async def cb_vibe_by_photo_start(
+    callback: CallbackQuery,
+    callback_data: VibeByPhotoStartCb,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+) -> None:
+    """Запуск flow «Вайб по фото» из пикера own_vibe (Premium-фича)."""
+    if not has_premium_access(user):
+        await callback.answer(vbp_texts.NOT_PREMIUM, show_alert=True)
+        return
+
+    await callback.answer()
+    await state.update_data(
+        vbp_photo_file_ids=[],
+        vbp_origin=callback_data.origin or "registration",
+    )
+    await state.set_state(RegistrationStates.vibe_by_photo_upload)
+    if callback.message is not None:
+        kb = vibe_by_photo_upload_kb(
+            done_text=vbp_texts.BTN_VIBE_BY_PHOTO_DONE,
+            cancel_text=vbp_texts.BTN_VIBE_BY_PHOTO_CANCEL,
+            can_finish=False,
+        )
+        await callback.message.answer(vbp_texts.ASK_PHOTOS, reply_markup=kb)
+
+
+@router.message(StateFilter(RegistrationStates.vibe_by_photo_upload), F.photo)
+async def on_vibe_by_photo_photo(
+    message: Message,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+) -> None:
+    """Пользователь шлёт фото для подбора вайба (до 3 шт)."""
+    data = await state.get_data()
+    file_ids: list[str] = list(data.get("vbp_photo_file_ids", []))
+
+    if len(file_ids) >= 3:
+        await message.answer(vbp_texts.PHOTO_MAX_REACHED)
+        return
+
+    # message.photo гарантировано непусто из-за фильтра F.photo, берём самое крупное.
+    if not message.photo:
+        await message.answer(vbp_texts.WRONG_TYPE)
+        return
+
+    # Лимит 5 МБ — как для main_media. Модератор не должен получать гигантские
+    # фотки в staging-чат.
+    if photo_size_exceeded(message):
+        await message.answer(texts.MEDIA_TOO_LARGE)
+        return
+
+    file_ids.append(message.photo[-1].file_id)
+    await state.update_data(vbp_photo_file_ids=file_ids)
+
+    received = len(file_ids)
+    kb = vibe_by_photo_upload_kb(
+        done_text=vbp_texts.BTN_VIBE_BY_PHOTO_DONE,
+        cancel_text=vbp_texts.BTN_VIBE_BY_PHOTO_CANCEL,
+        can_finish=received >= 1,
+    )
+    answer_text = vbp_texts.PHOTO_RECEIVED_TEMPLATE.format(received=received)
+    await message.answer(answer_text, reply_markup=kb)
+
+
+@router.message(StateFilter(RegistrationStates.vibe_by_photo_upload), Command("done"))
+async def cmd_vibe_by_photo_done(
+    message: Message,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+    bot: Bot,
+) -> None:
+    """`/done` — финализация набора фото и отправка в staging-чат."""
+    await _vibe_by_photo_finalize(
+        message=message, state=state, user=user, db_session=db_session, bot=bot
+    )
+
+
+@router.callback_query(
+    StateFilter(RegistrationStates.vibe_by_photo_upload), VibeByPhotoDoneCb.filter()
+)
+async def cb_vibe_by_photo_done(
+    callback: CallbackQuery,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+    bot: Bot,
+) -> None:
+    """Кнопка «Отправить» — финализация набора фото."""
+    msg = callback.message
+    await callback.answer()
+    if msg is None:
+        return
+    await _vibe_by_photo_finalize(
+        message=msg, state=state, user=user, db_session=db_session, bot=bot
+    )
+
+
+@router.callback_query(
+    StateFilter(RegistrationStates.vibe_by_photo_upload), VibeByPhotoCancelCb.filter()
+)
+async def cb_vibe_by_photo_cancel(
+    callback: CallbackQuery,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+) -> None:
+    """Отмена flow — возвращаемся к обычному пикеру."""
+    await callback.answer()
+    await state.update_data(vbp_photo_file_ids=[])
+    msg = callback.message
+    if msg is None:
+        return
+    await msg.answer(vbp_texts.CANCELLED)
+    await _enter_own_vibe_step(msg, state, db_session, user=user)
+
+
+@router.message(StateFilter(RegistrationStates.vibe_by_photo_upload))
+async def on_vibe_by_photo_wrong_type(message: Message) -> None:
+    """Любой не-фото апдейт в state vibe_by_photo_upload."""
+    await message.answer(vbp_texts.WRONG_TYPE)
+
+
+def _staging_chat_id() -> int | None:
+    """Куда слать фото: settings.media_staging_chat_id или admin[0] fallback."""
+    if app_settings.media_staging_chat_id is not None:
+        return app_settings.media_staging_chat_id
+    if app_settings.admin_telegram_ids:
+        return app_settings.admin_telegram_ids[0]
+    return None
+
+
+async def _vibe_by_photo_finalize(
+    *,
+    message: Message,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+    bot: Bot,
+) -> None:
+    """Создаёт запрос в БД, шлёт фото в staging-чат, уведомляет юзера."""
+    data = await state.get_data()
+    file_ids: list[str] = list(data.get("vbp_photo_file_ids", []))
+    origin: str = str(data.get("vbp_origin", "registration"))
+
+    if not file_ids:
+        await message.answer(vbp_texts.PHOTO_NEED_AT_LEAST_ONE)
+        return
+
+    chat_id = _staging_chat_id()
+    if chat_id is None:
+        logger.error("vbp: neither MEDIA_STAGING_CHAT_ID nor ADMIN_TELEGRAM_IDS configured")
+        await message.answer(texts.PROFILE_SAVE_FAILED)
+        return
+
+    # Если есть профиль — привяжем запрос к нему (origin=profile_edit обычно).
+    profile = await ProfileRepository(db_session).get_by_user_id(user.id)
+    profile_id = profile.id if profile is not None else None
+
+    repo = VibeByPhotoRepository(db_session)
+    request = await repo.create_request(
+        user_id=user.id,
+        origin=origin,
+        photo_file_ids=file_ids,
+        profile_id=profile_id,
+    )
+    await db_session.flush()
+
+    # Bot работает с parse_mode=HTML (DefaultBotProperties). Telegram username
+    # ограничен [A-Za-z0-9_], но защищаемся (defence-in-depth: вдруг попадёт
+    # «странный» username из старого аккаунта/импорта).
+    from html import escape as _html_escape
+
+    username = user.username or ""
+    username_display = f"@{_html_escape(username)}" if username else "(нет)"
+    caption = vbp_texts.ADMIN_CAPTION_TEMPLATE.format(
+        request_id=request.id,
+        user_id=user.id,
+        username=username_display,
+        origin=origin,
+    )
+    kb = vibe_by_photo_moderate_kb(
+        request.id,
+        reject_text=vbp_texts.ADMIN_BTN_REJECT,
+    )
+    # Шлём каждое фото отдельным сообщением. Кнопки выбора вайба — только на
+    # последнем (чтобы не было дублей клавиатур).
+    for idx, fid in enumerate(file_ids):
+        is_last = idx == len(file_ids) - 1
+        try:
+            if is_last:
+                await bot.send_photo(chat_id=chat_id, photo=fid, caption=caption, reply_markup=kb)
+            else:
+                await bot.send_photo(chat_id=chat_id, photo=fid)
+        except TelegramAPIError as exc:
+            logger.warning("vbp: failed to send photo to staging chat: {}", exc)
+
+    await message.answer(vbp_texts.SENT_TO_MOD)
+
+    # Уйти из FSM-state vibe_by_photo_upload. В обоих сценариях (registration
+    # и profile_edit) поведение одинаковое: state чистим, юзер видит SENT_TO_MOD
+    # и ждёт результат от модератора в фоне. /cancel остаётся доступен.
+    await state.clear()
 
 
 # ----------------------------- 14. main_media -----------------------------

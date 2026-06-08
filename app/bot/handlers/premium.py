@@ -55,29 +55,24 @@ async def on_premium_menu(message: Message, user: User, db_session: AsyncSession
         )
         return
 
-    from app.db.repositories.settings_repo import SettingsRepository
-    from app.services.payment_service import DEFAULT_DURATION_DAYS, DEFAULT_PRICE_RUB
-
-    settings_repo = SettingsRepository(db_session)
-    price_rub = await settings_repo.get_int("premium_price_rub") or DEFAULT_PRICE_RUB
-    duration_days = await settings_repo.get_int("premium_duration_days") or DEFAULT_DURATION_DAYS
-
-    screen_text = (
-        f"<b>{texts.SCREEN_TITLE}</b>\n\n"
-        f"{texts.BENEFITS}\n\n"
-        f"{texts.PRICE_TEMPLATE.format(price=price_rub, days=duration_days)}"
-    )
+    screen_text = f"<b>{texts.SCREEN_TITLE}</b>\n\n{texts.BENEFITS}\n\n{texts.CHOOSE_TARIFF_HEADER}"
     await message.answer(screen_text, reply_markup=premium_screen_kb(), parse_mode="HTML")
 
 
 @router.callback_query(PremiumActionCb.filter(F.action == "buy"))
-async def cb_premium_buy(callback, user: User, db_session: AsyncSession, bot: Bot) -> None:
-    """Нажатие кнопки «Оплатить» — отправка инвойса."""
+async def cb_premium_buy(
+    callback,
+    callback_data: PremiumActionCb,
+    user: User,
+    db_session: AsyncSession,
+    bot: Bot,
+) -> None:
+    """Нажатие кнопки тарифа — отправка инвойса под выбранный срок."""
     await callback.answer()
 
     service = PaymentService(db_session)
     try:
-        await service.create_premium_invoice(user, bot)
+        await service.create_premium_invoice(user, bot, tariff=callback_data.tariff)
     except AlreadyPremiumError as exc:
         import math
         from datetime import UTC, datetime

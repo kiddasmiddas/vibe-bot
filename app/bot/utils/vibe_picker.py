@@ -60,12 +60,16 @@ async def send_vibe_picker(
     role: str,
     page: int,
     selected_numbers: set[int] | None = None,
+    show_vibe_by_photo: bool = False,
+    vibe_by_photo_origin: str = "registration",
 ) -> Message:
     """Отправляет новое сообщение с пикером вайбов.
 
     Если у стартовой картинки страницы есть image_file_id — send_photo с caption.
     Если нет — send_message с текстом.
     Возвращает отправленное Message (нужно для последующего edit_vibe_picker).
+
+    ``show_vibe_by_photo`` показывает кнопку Premium-фичи «Вайб по фото».
     """
     image_file_id = await fetch_page_image_file_id(db_session, page)
     caption_text = texts.ASK_OWN_VIBE_PICKER if role == "own" else texts.ASK_DESIRED_VIBE_PICKER
@@ -77,6 +81,9 @@ async def send_vibe_picker(
         selected_numbers=selected_numbers,
         done_text=texts.BTN_DONE,
         any_text=texts.BTN_DESIRED_VIBE_ANY,
+        show_vibe_by_photo=show_vibe_by_photo,
+        vibe_by_photo_text=texts.BTN_VIBE_BY_PHOTO if show_vibe_by_photo else "",
+        vibe_by_photo_origin=vibe_by_photo_origin,
     )
 
     if image_file_id:
@@ -96,6 +103,8 @@ async def edit_vibe_picker(
     role: str,
     page: int,
     selected_numbers: set[int] | None = None,
+    show_vibe_by_photo: bool = False,
+    vibe_by_photo_origin: str = "registration",
 ) -> None:
     """Обновляет пикер вайбов in-place при навигации по страницам.
 
@@ -115,6 +124,9 @@ async def edit_vibe_picker(
         selected_numbers=selected_numbers,
         done_text=texts.BTN_DONE,
         any_text=texts.BTN_DESIRED_VIBE_ANY,
+        show_vibe_by_photo=show_vibe_by_photo,
+        vibe_by_photo_text=texts.BTN_VIBE_BY_PHOTO if show_vibe_by_photo else "",
+        vibe_by_photo_origin=vibe_by_photo_origin,
     )
 
     has_photo = bool(callback_message.photo)

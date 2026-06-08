@@ -31,6 +31,7 @@ from app.bot.handlers.complaints import start_complaint_flow
 from app.bot.keyboards.main_menu import main_menu_kb
 from app.bot.keyboards.matching import (
     MatchingActionCb,
+    MatchingUndoCb,
     SuperlikeCancelCb,
     actions_kb,
     superlike_cancel_kb,
@@ -41,6 +42,7 @@ from app.bot.utils.render_profile import (
     build_rendered_profile,
     truncate_caption,
 )
+from app.cache import get_redis
 from app.db.models.profile import Profile
 from app.db.models.user import User
 from app.db.repositories.analytics_repo import AnalyticsRepository
@@ -50,6 +52,7 @@ from app.db.repositories.moderation_repo import ModerationRepository
 from app.db.repositories.profile_repo import ProfileRepository
 from app.db.repositories.settings_repo import SettingsRepository
 from app.db.repositories.user_repo import UserRepository
+from app.services.access import has_premium_access
 from app.services.analytics_events import EventType
 from app.services.content_moderation_service import ContentModerationService
 from app.services.matching_service import CandidateResult, MatchingService
@@ -58,11 +61,30 @@ from app.texts import matching as texts
 
 router = Router(name="matching")
 
+# FSM-ключ для одношагового undo: сохраняем user_id предыдущего показанного
+# кандидата. Stack глубины 1 — после возврата «назад» дальше шагнуть нельзя.
+FSM_KEY_LAST_SHOWN = "last_shown_candidate_user_id"
+FSM_KEY_CURRENT = "current_candidate_user_id"
+
 
 # --------------------------- helpers ---------------------------
 
 
 def _build_matching_service(db_session: AsyncSession) -> MatchingService:
+    """Создаёт MatchingService с инжекцией Redis (для дневного лимита лайков).
+
+    Если получить Redis-клиент не вышло (тесты без singleton/мок), сервис
+    создаётся без redis — лимит лайков в этом режиме просто не проверяется
+    (fail-open). Это безопасно: проверка целостности (UNIQUE Like) и
+    мэтч-логика не зависят от Redis. `from_url` ленив и не делает RTT до
+    первой команды, поэтому ошибки сети ловятся в
+    `_check_and_increment_like_quota` (fail-open).
+    """
+    try:
+        redis = get_redis()
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.warning("matching service: redis init failed, like quota disabled: {}", exc)
+        redis = None
     return MatchingService(
         profile_repo=ProfileRepository(db_session),
         matching_repo=MatchingRepository(db_session),
@@ -70,6 +92,7 @@ def _build_matching_service(db_session: AsyncSession) -> MatchingService:
         dictionary_repo=DictionaryRepository(db_session),
         user_repo=UserRepository(db_session),
         session=db_session,
+        redis=redis,
     )
 
 
@@ -199,18 +222,53 @@ def _badge_prefix(candidate_result: CandidateResult) -> str:
     return ""
 
 
+async def _update_seen_history(
+    state: FSMContext | None,
+    *,
+    shown_user_id: int,
+) -> None:
+    """Сдвигает FSM-стэк undo: текущий кандидат становится «предыдущим».
+
+    Stack глубины 1: FSM хранит только `last_shown_candidate_user_id` и
+    `current_candidate_user_id`. Перед обновлением `current` старое значение
+    `current` уходит в `last_shown`. Если показанный кандидат совпал с
+    текущим (повторный показ) — историю не сдвигаем, чтобы Undo не
+    «зацикливался» сам на себя.
+    """
+    if state is None:
+        return
+    data = await state.get_data()
+    current = data.get(FSM_KEY_CURRENT)
+    if current == shown_user_id:
+        return
+    await state.update_data(
+        **{
+            FSM_KEY_LAST_SHOWN: current,
+            FSM_KEY_CURRENT: shown_user_id,
+        }
+    )
+
+
 async def _show_candidate(
     message: Message,
     db_session: AsyncSession,
     bot: Bot,
     viewer_user_id: int,
     candidate_result: CandidateResult,
+    *,
+    viewer: User | None = None,
+    state: FSMContext | None = None,
 ) -> None:
     """Шлёт карточку кандидата, отмечает просмотр и пишет аналитику.
 
     Запись `viewed_profiles` и аналитика делаются ПОСЛЕ успешной попытки
     отправить медиа — чтобы при ошибке отправки кандидат не «сгорел» из
     выдачи. Best-effort: ошибки записи viewed/аналитики не должны ломать UX.
+
+    `viewer` (опц.) — если передан и имеет Premium-доступ, на карточке
+    показывается кнопка «↩️ Назад» при наличии предыдущей анкеты в FSM-стэке.
+    `state` — нужен и для рендера кнопки Undo (определение «есть предыдущая»),
+    и для последующего обновления стэка.
     """
     candidate = candidate_result.profile
     rendered = await _render_candidate(db_session, candidate)
@@ -220,7 +278,8 @@ async def _show_candidate(
 
     badge = _badge_prefix(candidate_result)
     caption = truncate_caption(f"{badge}{texts.CANDIDATE_HEADER}\n{rendered.text}")
-    kb = actions_kb(candidate.user_id)
+    show_undo = await _should_show_undo(state, viewer)
+    kb = actions_kb(candidate.user_id, show_undo=show_undo)
     await _send_candidate_media(
         bot,
         message.chat.id,
@@ -239,6 +298,17 @@ async def _show_candidate(
         event_type=EventType.PROFILE_VIEWED,
         payload={"target_user_id": candidate.user_id},
     )
+    await _update_seen_history(state, shown_user_id=candidate.user_id)
+
+
+async def _should_show_undo(state: FSMContext | None, viewer: User | None) -> bool:
+    """True, если в FSM есть предыдущая анкета и юзер имеет Premium-доступ."""
+    if viewer is None or state is None:
+        return False
+    if not has_premium_access(viewer):
+        return False
+    data = await state.get_data()
+    return data.get(FSM_KEY_LAST_SHOWN) is not None
 
 
 async def _show_next_candidate(
@@ -246,6 +316,8 @@ async def _show_next_candidate(
     db_session: AsyncSession,
     bot: Bot,
     user: User,
+    *,
+    state: FSMContext | None = None,
 ) -> None:
     """Подгружает следующего кандидата (limit=1) и показывает или сообщает
     об отсутствии."""
@@ -257,7 +329,15 @@ async def _show_next_candidate(
             reply_markup=main_menu_kb(is_registered=True),
         )
         return
-    await _show_candidate(message, db_session, bot, user.id, next_results[0])
+    await _show_candidate(
+        message,
+        db_session,
+        bot,
+        user.id,
+        next_results[0],
+        viewer=user,
+        state=state,
+    )
 
 
 def _build_candidate_input_media(
@@ -302,6 +382,8 @@ async def _edit_to_next_candidate(
     message: Message,
     db_session: AsyncSession,
     user: User,
+    *,
+    state: FSMContext | None = None,
 ) -> None:
     """Заменяет карточку текущего кандидата на следующего через `edit_media`.
 
@@ -324,7 +406,8 @@ async def _edit_to_next_candidate(
 
     badge = _badge_prefix(candidate_result)
     caption = truncate_caption(f"{badge}{texts.CANDIDATE_HEADER}\n{rendered.text}")
-    kb = actions_kb(candidate.user_id)
+    show_undo = await _should_show_undo(state, user)
+    kb = actions_kb(candidate.user_id, show_undo=show_undo)
     media = _build_candidate_input_media(rendered, caption)
 
     shown = False
@@ -346,6 +429,7 @@ async def _edit_to_next_candidate(
         event_type=EventType.PROFILE_VIEWED,
         payload={"target_user_id": candidate.user_id},
     )
+    await _update_seen_history(state, shown_user_id=candidate.user_id)
 
 
 async def _try_add_dislike(
@@ -378,6 +462,22 @@ def _moderation_error_text(reason: str | None) -> str:
     return texts.MODERATION_REJECTED_STOP_WORD
 
 
+async def _resolve_like_daily_limit_for_text(db_session: AsyncSession) -> int:
+    """Возвращает актуальный лимит для подстановки в текст сообщения.
+
+    Читает из app_settings через SettingsRepository (без Redis-кэша — это
+    редкий путь, при пробое лимита). При отсутствии ключа — дефолт.
+    """
+    from app.db.repositories.settings_repo import (
+        DEFAULT_LIKE_DAILY_LIMIT,
+        SETTING_LIKE_DAILY_LIMIT,
+    )
+
+    settings_repo = SettingsRepository(db_session)
+    value = await settings_repo.get_int(SETTING_LIKE_DAILY_LIMIT)
+    return DEFAULT_LIKE_DAILY_LIMIT if value is None else value
+
+
 # --------------------------- entry: «Искать своих» ---------------------------
 
 
@@ -391,6 +491,8 @@ async def on_search(
 ) -> None:
     """Точка входа: пользователь нажал «Искать своих» в главном меню."""
     # На случай, если пользователь застрял в каком-то state — чистим.
+    # Это также сбрасывает undo-стэк (last_shown/current): новая сессия
+    # поиска не должна возвращать к карточкам из прошлой.
     await state.clear()
 
     profile = await ProfileRepository(db_session).get_by_user_id(user.id)
@@ -412,7 +514,15 @@ async def on_search(
         await message.answer(texts.NO_CANDIDATES)
         return
 
-    await _show_candidate(message, db_session, bot, user.id, candidate_results[0])
+    await _show_candidate(
+        message,
+        db_session,
+        bot,
+        user.id,
+        candidate_results[0],
+        viewer=user,
+        state=state,
+    )
 
 
 # --------------------------- callback: действия ---------------------------
@@ -476,7 +586,17 @@ async def on_matching_action(
             from_user_id=user.id,
             to_user_id=target_user_id,
             kind="like",
+            from_user=user,
         )
+        if outcome.daily_limit_reached:
+            # Лимит исчерпан — карточку не меняем (юзер сможет скипнуть/выйти),
+            # показываем alert с предложением Premium.
+            limit = await _resolve_like_daily_limit_for_text(db_session)
+            await callback.answer(
+                texts.LIKE_DAILY_LIMIT_REACHED_TEMPLATE.format(limit=limit),
+                show_alert=True,
+            )
+            return
         if outcome.like_recorded:
             await analytics_repo.log_event(
                 user.id,
@@ -497,7 +617,7 @@ async def on_matching_action(
                 initial_message=outcome.initial_message,
             )
         await callback.answer()
-        await _edit_to_next_candidate(callback.message, db_session, user)
+        await _edit_to_next_candidate(callback.message, db_session, user, state=state)
         return
 
     if action == "dislike":
@@ -509,7 +629,7 @@ async def on_matching_action(
                 payload={"target_user_id": target_user_id},
             )
         await callback.answer()
-        await _edit_to_next_candidate(callback.message, db_session, user)
+        await _edit_to_next_candidate(callback.message, db_session, user, state=state)
         return
 
     if action == "skip":
@@ -518,11 +638,132 @@ async def on_matching_action(
         # (по умолчанию 2 дня, настраивается) — «отложить на потом».
         # Дизлайк же исключает навсегда.
         await callback.answer()
-        await _edit_to_next_candidate(callback.message, db_session, user)
+        await _edit_to_next_candidate(callback.message, db_session, user, state=state)
         return
 
     # Неизвестный action — молча отвечаем, чтобы убрать спиннер.
     await callback.answer()
+
+
+# --------------------------- undo (Premium) ---------------------------
+
+
+async def _render_previous_candidate(
+    callback: CallbackQuery,
+    db_session: AsyncSession,
+    bot: Bot,
+    user: User,
+    state: FSMContext,
+    *,
+    previous_user_id: int,
+) -> None:
+    """Достаёт профиль предыдущего кандидата и заново показывает его.
+
+    Логика:
+    1. Удаляем запись `viewed_profiles` для (user, previous) — иначе кандидат
+       останется в cooldown-исключениях и не попадёт в выдачу.
+    2. Загружаем профиль через ProfileRepository; если кандидат удалил анкету
+       или стал неактивным — показываем alert и переходим к следующему.
+    3. Рендерим карточку как новое сообщение (старая карточка остаётся в
+       чате — это намеренно: после undo пользователь видит и предыдущую,
+       и новую — карты идут стопкой как «история»).
+    4. Сдвигаем FSM-стэк: previous уходит в текущий, last_shown очищается
+       (stack глубины 1, после одного отката повторный undo не работает).
+    """
+    matching_repo = MatchingRepository(db_session)
+    await matching_repo.remove_viewed(viewer_id=user.id, target_id=previous_user_id)
+
+    profile = await ProfileRepository(db_session).get_by_user_id(previous_user_id)
+    if profile is None or not profile.is_active or profile.is_hidden:
+        await callback.answer(texts.UNDO_CANDIDATE_UNAVAILABLE, show_alert=True)
+        # Сбрасываем стэк, чтобы повторный undo не пытался снова.
+        await state.update_data(**{FSM_KEY_LAST_SHOWN: None})
+        return
+
+    rendered = await _render_candidate(db_session, profile)
+    if rendered is None:
+        await callback.answer(texts.UNDO_CANDIDATE_UNAVAILABLE, show_alert=True)
+        await state.update_data(**{FSM_KEY_LAST_SHOWN: None})
+        return
+
+    # После отката `last_shown` пуст, но `current` становится показываемым
+    # снова кандидатом. Sets FSM сразу, до отправки сообщения — это
+    # гарантирует, что новая карточка получит show_undo=False.
+    await state.update_data(
+        **{
+            FSM_KEY_LAST_SHOWN: None,
+            FSM_KEY_CURRENT: previous_user_id,
+        }
+    )
+
+    caption = truncate_caption(f"{texts.CANDIDATE_HEADER}\n{rendered.text}")
+    show_undo = await _should_show_undo(state, user)  # False после сброса last_shown
+    kb = actions_kb(profile.user_id, show_undo=show_undo)
+    if callback.message is None:
+        # Сообщение пропало (старый Telegram-callback). Просто ответим без рендера.
+        await callback.answer()
+        return
+    await _send_candidate_media(
+        bot,
+        callback.message.chat.id,
+        rendered,
+        caption,
+        kb,
+        fallback_message=callback.message,
+    )
+
+    # Заново фиксируем просмотр и аналитику для возвращённой анкеты —
+    # как при обычном показе.
+    await matching_repo.add_viewed(viewer_id=user.id, target_id=previous_user_id)
+    await AnalyticsRepository(db_session).log_event(
+        user.id,
+        event_type=EventType.PROFILE_VIEWED,
+        payload={"target_user_id": previous_user_id, "via": "undo"},
+    )
+    await callback.answer()
+
+
+@router.callback_query(MatchingUndoCb.filter())
+async def on_matching_undo(
+    callback: CallbackQuery,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+    bot: Bot,
+) -> None:
+    """Премиальная кнопка «↩️ Назад»: возврат к предыдущей анкете в подборке.
+
+    Stack глубины 1 — только последний предыдущий кандидат. Премиум-доступ
+    обязателен (короткозамыкаем `has_premium_access`), даже если кнопка
+    случайно отрендерилась в старом сообщении.
+    """
+    if not has_premium_access(user):
+        # Не Premium — кнопки быть не должно, но callback мог прилететь
+        # из старого сообщения. Безопасно завершаем.
+        await callback.answer(texts.UNDO_NO_PREVIOUS, show_alert=True)
+        return
+
+    data = await state.get_data()
+    previous_user_id = data.get(FSM_KEY_LAST_SHOWN)
+    if previous_user_id is None:
+        await callback.answer(texts.UNDO_NO_PREVIOUS, show_alert=True)
+        return
+
+    current_user_id = data.get(FSM_KEY_CURRENT)
+    if previous_user_id == current_user_id:
+        # Защита от деградировавшего стэка: previous уже совпадает с current.
+        await callback.answer(texts.UNDO_NO_PREVIOUS, show_alert=True)
+        await state.update_data(**{FSM_KEY_LAST_SHOWN: None})
+        return
+
+    await _render_previous_candidate(
+        callback,
+        db_session,
+        bot,
+        user,
+        state,
+        previous_user_id=int(previous_user_id),
+    )
 
 
 # --------------------------- superlike message ---------------------------
@@ -588,7 +829,15 @@ async def on_superlike_message(
         to_user_id=int(target_user_id),
         kind="superlike",
         message=text,
+        from_user=user,
     )
+    if outcome.daily_limit_reached:
+        # Лимит исчерпан и для superlike — общий бюджет лайков. Выходим из
+        # FSM и сообщаем пользователю, что лимит исчерпан.
+        limit = await _resolve_like_daily_limit_for_text(db_session)
+        await state.clear()
+        await message.answer(texts.LIKE_DAILY_LIMIT_REACHED_TEMPLATE.format(limit=limit))
+        return
     analytics_repo = AnalyticsRepository(db_session)
     if outcome.like_recorded:
         await analytics_repo.log_event(
@@ -612,4 +861,4 @@ async def on_superlike_message(
 
     await state.clear()
     await message.answer(texts.SUPERLIKE_SENT)
-    await _show_next_candidate(message, db_session, bot, user)
+    await _show_next_candidate(message, db_session, bot, user, state=state)

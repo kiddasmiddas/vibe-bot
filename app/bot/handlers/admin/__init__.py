@@ -16,6 +16,7 @@ from app.bot.handlers.admin.review import router as review_router
 from app.bot.handlers.admin.settings import router as settings_router
 from app.bot.handlers.admin.stopwords import router as stopwords_router
 from app.bot.handlers.admin.users import router as users_router
+from app.bot.handlers.admin.vibe_by_photo import router as vibe_by_photo_router
 
 admin_router = Router(name="admin")
 
@@ -32,5 +33,6 @@ admin_router.include_router(review_router)
 admin_router.include_router(stopwords_router)
 admin_router.include_router(settings_router)
 admin_router.include_router(analytics_router)
+admin_router.include_router(vibe_by_photo_router)
 
 __all__ = ["admin_router"]

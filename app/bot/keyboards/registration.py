@@ -75,6 +75,28 @@ class VibeAnyCb(CallbackData, prefix="vibe_any"):
     pass
 
 
+class VibeByPhotoStartCb(CallbackData, prefix="vbp_start"):
+    """Кнопка «Вайб по фото» внутри пикера own_vibe (Premium-фича).
+
+    origin: 'registration' | 'profile_edit' — откуда зашли, чтобы знать,
+    куда возвращать пользователя после подбора.
+    """
+
+    origin: str
+
+
+class VibeByPhotoDoneCb(CallbackData, prefix="vbp_done"):
+    """Кнопка «Отправить» (или авто после 3 фото) в state vibe_by_photo_upload."""
+
+    pass
+
+
+class VibeByPhotoCancelCb(CallbackData, prefix="vbp_cancel"):
+    """Кнопка «Отменить» — вернуть пользователя к обычному пикеру вайба."""
+
+    pass
+
+
 def build_captcha_kb() -> tuple[InlineKeyboardMarkup, str]:
     """Возвращает (клавиатуру, целевой эмодзи).
 
@@ -134,11 +156,16 @@ def vibe_picker_kb(
     selected_numbers: set[int] | None = None,
     done_text: str,
     any_text: str,
+    show_vibe_by_photo: bool = False,
+    vibe_by_photo_text: str = "",
+    vibe_by_photo_origin: str = "registration",
 ) -> InlineKeyboardMarkup:
     """Сетка 3×3 inline-кнопок выбора вайба с навигацией.
 
     Для single-режима (own): кнопки без галочек, нет «Готово»/«Любой».
     Для multi-режима (desired): галочки у выбранных, ряды «Готово» и «Любой вайб».
+    Если ``show_vibe_by_photo`` — внизу добавляется кнопка «Вайб по фото»
+    (Premium-фича). Кнопка отдаёт VibeByPhotoStartCb(origin=...).
     """
     is_multi = role == "desired"
     first_number = page * page_size + 1
@@ -187,5 +214,33 @@ def vibe_picker_kb(
         builder.button(text=any_text, callback_data=VibeAnyCb())
         rows += [1, 1]
 
+    # Premium-фича «Вайб по фото» — отдельный ряд внизу. Видна только
+    # Premium-юзерам и только в режиме одиночного выбора (own).
+    if show_vibe_by_photo and role == "own" and vibe_by_photo_text:
+        builder.button(
+            text=vibe_by_photo_text,
+            callback_data=VibeByPhotoStartCb(origin=vibe_by_photo_origin),
+        )
+        rows.append(1)
+
     builder.adjust(*rows)
+    return builder.as_markup()
+
+
+def vibe_by_photo_upload_kb(
+    *,
+    done_text: str,
+    cancel_text: str,
+    can_finish: bool,
+) -> InlineKeyboardMarkup:
+    """Клавиатура в состоянии vibe_by_photo_upload.
+
+    Если ``can_finish=True`` (≥1 фото) — показываем кнопку «Отправить».
+    «Отменить» доступна всегда — возвращает к обычному пикеру.
+    """
+    builder = InlineKeyboardBuilder()
+    if can_finish:
+        builder.button(text=done_text, callback_data=VibeByPhotoDoneCb())
+    builder.button(text=cancel_text, callback_data=VibeByPhotoCancelCb())
+    builder.adjust(1)
     return builder.as_markup()

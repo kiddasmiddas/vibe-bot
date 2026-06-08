@@ -24,3 +24,5 @@ class ProfileEditStates(StatesGroup):
     # Premium-фичи (Этап 8)
     waiting_music = State()
     waiting_video_note = State()
+    # Premium: «Вайб по фото» — загрузка 1-3 фото для модератора.
+    vibe_by_photo_upload = State()

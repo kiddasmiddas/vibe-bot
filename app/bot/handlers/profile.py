@@ -11,6 +11,7 @@ from __future__ import annotations
 from io import BytesIO
 
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
@@ -18,6 +19,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.bot.keyboards.admin import vibe_by_photo_moderate_kb
 from app.bot.keyboards.main_menu import main_menu_kb
 from app.bot.keyboards.profile_edit import (
     ProfileEditCb,
@@ -30,11 +32,15 @@ from app.bot.keyboards.registration import (
     GenderCb,
     RegBackCb,
     VibeAnyCb,
+    VibeByPhotoCancelCb,
+    VibeByPhotoDoneCb,
+    VibeByPhotoStartCb,
     VibeDoneCb,
     VibePageCb,
     VibePickCb,
     city_suggestions_kb,
     gender_kb,
+    vibe_by_photo_upload_kb,
 )
 from app.bot.states.profile_edit import ProfileEditStates
 from app.bot.utils.admin_notify import notify_admins_profile_pending
@@ -43,6 +49,7 @@ from app.bot.utils.multi_select import refresh_multi_select_kb as _refresh_multi
 from app.bot.utils.pagination import MultiSelectCb, build_multi_select_kb
 from app.bot.utils.render_profile import render_profile_card, send_premium_media
 from app.bot.utils.vibe_picker import edit_vibe_picker, send_vibe_picker
+from app.config import settings as app_settings
 from app.db.models.dictionaries import Fandom, Gender, Interest, Vibe
 from app.db.models.profile import Profile
 from app.db.models.user import User
@@ -51,6 +58,7 @@ from app.db.repositories.dictionary_repo import DictionaryRepository
 from app.db.repositories.moderation_repo import ModerationRepository
 from app.db.repositories.profile_repo import ProfileRepository
 from app.db.repositories.settings_repo import SettingsRepository
+from app.db.repositories.vibe_by_photo_repo import VibeByPhotoRepository
 from app.services.access import has_premium_access
 from app.services.analytics_events import EventType
 from app.services.content_moderation_service import ContentModerationService
@@ -60,6 +68,7 @@ from app.texts import common as common_texts
 from app.texts import premium_media as pm_texts
 from app.texts import profile_edit as texts
 from app.texts import registration as reg_texts
+from app.texts import vibe_by_photo as vbp_texts
 
 router = Router(name="profile")
 
@@ -410,7 +419,17 @@ async def on_profile_edit_dispatch(
             return
         if msg.bot is None:
             return
-        await send_vibe_picker(msg.bot, msg.chat.id, db_session, role="own", page=0)
+        show_vbp = has_premium_access(user)
+        await send_vibe_picker(
+            msg.bot,
+            msg.chat.id,
+            db_session,
+            role="own",
+            page=0,
+            show_vibe_by_photo=show_vbp,
+            vibe_by_photo_origin="profile_edit",
+        )
+        await state.update_data(vbp_premium=show_vbp)
         await state.set_state(ProfileEditStates.edit_own_vibe)
         return
 
@@ -1202,6 +1221,190 @@ async def on_edit_vibe_pick_own(
         await _send_card(callback.message, db_session, bot, await _reload(db_session, profile.id))
 
 
+@router.callback_query(ProfileEditStates.edit_own_vibe, VibeByPhotoStartCb.filter())
+async def cb_edit_vibe_by_photo_start(
+    callback: CallbackQuery,
+    callback_data: VibeByPhotoStartCb,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+) -> None:
+    """Запуск flow «Вайб по фото» из режима редактирования (Premium)."""
+    if not has_premium_access(user):
+        await callback.answer(vbp_texts.NOT_PREMIUM, show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(
+        vbp_photo_file_ids=[],
+        vbp_origin="profile_edit",
+    )
+    await state.set_state(ProfileEditStates.vibe_by_photo_upload)
+    if callback.message is not None:
+        kb = vibe_by_photo_upload_kb(
+            done_text=vbp_texts.BTN_VIBE_BY_PHOTO_DONE,
+            cancel_text=vbp_texts.BTN_VIBE_BY_PHOTO_CANCEL,
+            can_finish=False,
+        )
+        await callback.message.answer(vbp_texts.ASK_PHOTOS, reply_markup=kb)
+
+
+@router.message(ProfileEditStates.vibe_by_photo_upload, F.photo)
+async def on_edit_vibe_by_photo_photo(
+    message: Message,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+) -> None:
+    """Сбор фото (1-3) в режиме редактирования."""
+    data = await state.get_data()
+    file_ids: list[str] = list(data.get("vbp_photo_file_ids", []))
+    if len(file_ids) >= 3:
+        await message.answer(vbp_texts.PHOTO_MAX_REACHED)
+        return
+    if not message.photo:
+        await message.answer(vbp_texts.WRONG_TYPE)
+        return
+    file_ids.append(message.photo[-1].file_id)
+    await state.update_data(vbp_photo_file_ids=file_ids)
+    received = len(file_ids)
+    kb = vibe_by_photo_upload_kb(
+        done_text=vbp_texts.BTN_VIBE_BY_PHOTO_DONE,
+        cancel_text=vbp_texts.BTN_VIBE_BY_PHOTO_CANCEL,
+        can_finish=received >= 1,
+    )
+    await message.answer(
+        vbp_texts.PHOTO_RECEIVED_TEMPLATE.format(received=received), reply_markup=kb
+    )
+
+
+@router.message(ProfileEditStates.vibe_by_photo_upload, Command("done"))
+async def cmd_edit_vibe_by_photo_done(
+    message: Message,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+    bot: Bot,
+) -> None:
+    await _profile_vbp_finalize(
+        message=message, state=state, user=user, db_session=db_session, bot=bot
+    )
+
+
+@router.callback_query(ProfileEditStates.vibe_by_photo_upload, VibeByPhotoDoneCb.filter())
+async def cb_edit_vibe_by_photo_done(
+    callback: CallbackQuery,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+    bot: Bot,
+) -> None:
+    msg = callback.message
+    await callback.answer()
+    if msg is None:
+        return
+    await _profile_vbp_finalize(message=msg, state=state, user=user, db_session=db_session, bot=bot)
+
+
+@router.callback_query(ProfileEditStates.vibe_by_photo_upload, VibeByPhotoCancelCb.filter())
+async def cb_edit_vibe_by_photo_cancel(
+    callback: CallbackQuery,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+) -> None:
+    """Отмена при редактировании — возвращаемся к обычному пикеру own_vibe."""
+    await callback.answer()
+    await state.update_data(vbp_photo_file_ids=[])
+    msg = callback.message
+    if msg is None:
+        return
+    if msg.bot is None:
+        await state.clear()
+        return
+    show_vbp = has_premium_access(user)
+    await msg.answer(vbp_texts.CANCELLED)
+    await send_vibe_picker(
+        msg.bot,
+        msg.chat.id,
+        db_session,
+        role="own",
+        page=0,
+        show_vibe_by_photo=show_vbp,
+        vibe_by_photo_origin="profile_edit",
+    )
+    await state.update_data(vbp_premium=show_vbp)
+    await state.set_state(ProfileEditStates.edit_own_vibe)
+
+
+@router.message(ProfileEditStates.vibe_by_photo_upload)
+async def on_edit_vibe_by_photo_wrong_type(message: Message) -> None:
+    await message.answer(vbp_texts.WRONG_TYPE)
+
+
+def _staging_chat_id_profile() -> int | None:
+    """Куда слать фото для модератора: staging_chat_id или admin[0]."""
+    if app_settings.media_staging_chat_id is not None:
+        return app_settings.media_staging_chat_id
+    if app_settings.admin_telegram_ids:
+        return app_settings.admin_telegram_ids[0]
+    return None
+
+
+async def _profile_vbp_finalize(
+    *,
+    message: Message,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+    bot: Bot,
+) -> None:
+    """Создаёт запрос в БД и шлёт фото в staging-чат (profile_edit)."""
+    data = await state.get_data()
+    file_ids: list[str] = list(data.get("vbp_photo_file_ids", []))
+    if not file_ids:
+        await message.answer(vbp_texts.PHOTO_NEED_AT_LEAST_ONE)
+        return
+
+    chat_id = _staging_chat_id_profile()
+    if chat_id is None:
+        logger.error("vbp (profile): no staging chat configured")
+        await message.answer(reg_texts.PROFILE_SAVE_FAILED)
+        return
+
+    profile = await ProfileRepository(db_session).get_by_user_id(user.id)
+    profile_id = profile.id if profile is not None else None
+
+    repo = VibeByPhotoRepository(db_session)
+    request = await repo.create_request(
+        user_id=user.id,
+        origin="profile_edit",
+        photo_file_ids=file_ids,
+        profile_id=profile_id,
+    )
+    await db_session.flush()
+
+    username = user.username or ""
+    caption = vbp_texts.ADMIN_CAPTION_TEMPLATE.format(
+        request_id=request.id,
+        user_id=user.id,
+        username=username,
+        origin="profile_edit",
+    )
+    kb = vibe_by_photo_moderate_kb(request.id, reject_text=vbp_texts.ADMIN_BTN_REJECT)
+    for idx, fid in enumerate(file_ids):
+        is_last = idx == len(file_ids) - 1
+        try:
+            if is_last:
+                await bot.send_photo(chat_id=chat_id, photo=fid, caption=caption, reply_markup=kb)
+            else:
+                await bot.send_photo(chat_id=chat_id, photo=fid)
+        except TelegramAPIError as exc:
+            logger.warning("vbp (profile): failed to send photo to staging chat: {}", exc)
+
+    await message.answer(vbp_texts.SENT_TO_MOD)
+    await state.clear()
+
+
 @router.callback_query(ProfileEditStates.edit_own_vibe, VibePageCb.filter())
 async def on_edit_vibe_page_own(
     callback: CallbackQuery,
@@ -1214,8 +1417,17 @@ async def on_edit_vibe_page_own(
         await callback.answer()
         return
     await callback.answer()
+    data = await state.get_data()
+    show_vbp = bool(data.get("vbp_premium", False))
     if callback.message is not None:
-        await edit_vibe_picker(callback.message, db_session, role="own", page=callback_data.page)
+        await edit_vibe_picker(
+            callback.message,
+            db_session,
+            role="own",
+            page=callback_data.page,
+            show_vibe_by_photo=show_vbp,
+            vibe_by_photo_origin="profile_edit",
+        )
 
 
 # ----------------------------- edit_desired_vibe (callback picker, multi) -------------------------

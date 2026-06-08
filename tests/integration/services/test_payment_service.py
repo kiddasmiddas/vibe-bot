@@ -88,13 +88,15 @@ async def test_create_premium_invoice_creates_payment_and_calls_send_invoice(
     assert call_kwargs["currency"] == "RUB"
     payload = call_kwargs["payload"]
     assert payload.startswith("premium:")
-    payment_id = int(payload.split(":")[1])
+    # Новый формат: premium:<tariff>:<id>. payment_id всегда в последней секции.
+    payment_id = int(payload.split(":")[-1])
 
     # Платёж должен быть в БД.
     payment = await PaymentRepository(db_session).get_by_id(payment_id)
     assert payment is not None
     assert payment.status == "pending"
-    assert payment.purpose == "premium"
+    # Тариф вшит в purpose ('premium:<tariff>'); по умолчанию — месяц.
+    assert payment.purpose.startswith("premium:")
     assert payment.user_id == user.id
     assert payment.invoice_payload == payload
 
@@ -359,3 +361,161 @@ async def test_handle_successful_payment_idempotent_on_duplicate(db_session) -> 
         .all()
     )
     assert len(subs_count) == 1
+
+
+# ---------------------------------------------------------------------------
+# Тарифы: week / month / year
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tariff", "expected_price_rub", "expected_days"),
+    [
+        ("week", 100, 7),
+        ("month", 200, 30),
+        ("year", 1500, 365),
+    ],
+)
+async def test_create_premium_invoice_per_tariff_uses_correct_price_and_payload(
+    db_session, tariff: str, expected_price_rub: int, expected_days: int
+) -> None:
+    """Для каждого тарифа выставляется корректная цена и payload содержит тариф."""
+    user = await _make_user(db_session, telegram_id=70100 + hash(tariff) % 100)
+    bot = _mock_bot()
+
+    with patch("app.services.payment_service.settings") as mock_settings:
+        mock_settings.yookassa_provider_token = "381764678:TEST:abc"
+        service = PaymentService(db_session)
+        await service.create_premium_invoice(user, bot, tariff=tariff)
+
+    bot.send_invoice.assert_awaited_once()
+    call_kwargs = bot.send_invoice.call_args.kwargs
+
+    # Сумма в копейках = цена * 100 (одна позиция в prices).
+    assert call_kwargs["prices"][0].amount == expected_price_rub * 100
+
+    # Срок зашит в описание и в label инвойса (UX-проверка).
+    assert str(expected_days) in call_kwargs["description"]
+    assert str(expected_days) in call_kwargs["prices"][0].label
+
+    # Тариф вшит в payload в формате premium:<tariff>:<id>.
+    payload = call_kwargs["payload"]
+    parts = payload.split(":")
+    assert parts[0] == "premium"
+    assert parts[1] == tariff
+    payment_id = int(parts[-1])
+
+    # Payment в БД c корректным purpose ('premium:<tariff>') и суммой.
+    payment = await PaymentRepository(db_session).get_by_id(payment_id)
+    assert payment is not None
+    assert payment.status == "pending"
+    assert payment.purpose == f"premium:{tariff}"
+    assert payment.amount_kop == expected_price_rub * 100
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tariff", "expected_days"),
+    [
+        ("week", 7),
+        ("month", 30),
+        ("year", 365),
+    ],
+)
+async def test_handle_successful_payment_per_tariff_sets_correct_premium_until(
+    db_session, tariff: str, expected_days: int
+) -> None:
+    """handle_successful_payment вычисляет premium_until = now + duration_days(tariff).
+
+    Тариф читается из Payment.purpose (а не из payload) — это защита от подмены.
+    """
+    user = await _make_user(db_session, telegram_id=70200 + hash(tariff) % 100)
+    payment_repo = PaymentRepository(db_session)
+
+    # Создаём pending платёж напрямую с purpose='premium:<tariff>'.
+    payment = await payment_repo.create_pending(
+        user_id=user.id,
+        amount_kop=12345,  # любая ненулевая сумма
+        purpose=f"premium:{tariff}",
+        invoice_payload=f"premium:{tariff}:placeholder_{tariff}",
+    )
+    from sqlalchemy import update
+
+    from app.db.models.premium import Payment as PaymentModel
+
+    await db_session.execute(
+        update(PaymentModel)
+        .where(PaymentModel.id == payment.id)
+        .values(invoice_payload=f"premium:{tariff}:{payment.id}")
+    )
+    await db_session.flush()
+
+    msg = _mock_successful_payment_message(f"premium:{tariff}:{payment.id}", user.telegram_id)
+
+    before = datetime.now(tz=UTC)
+    service = PaymentService(db_session)
+    expires_at = await service.handle_successful_payment(msg, user)
+    after = datetime.now(tz=UTC)
+
+    # premium_until ≈ now + expected_days (с допуском на время выполнения теста).
+    delta = expires_at - before
+    delta_max = after + timedelta(days=expected_days) - before
+    assert timedelta(days=expected_days) - timedelta(seconds=5) <= delta <= delta_max
+
+    assert user.is_premium is True
+    assert user.premium_until == expires_at
+
+
+@pytest.mark.asyncio
+async def test_create_premium_invoice_unknown_tariff_falls_back_to_month(db_session) -> None:
+    """Неизвестный тариф нормализуется в 'month' — никаких падений."""
+    user = await _make_user(db_session, telegram_id=70300)
+    bot = _mock_bot()
+
+    with patch("app.services.payment_service.settings") as mock_settings:
+        mock_settings.yookassa_provider_token = "381764678:TEST:abc"
+        service = PaymentService(db_session)
+        # "lifetime" не входит в ALLOWED_TARIFFS — должно нормализоваться в month.
+        await service.create_premium_invoice(user, bot, tariff="lifetime")
+
+    call_kwargs = bot.send_invoice.call_args.kwargs
+    # Цена месяца — 200 ₽ = 20000 копеек.
+    assert call_kwargs["prices"][0].amount == 200 * 100
+    payload = call_kwargs["payload"]
+    assert payload.startswith("premium:month:")
+
+
+@pytest.mark.asyncio
+async def test_handle_successful_payment_legacy_payload_treated_as_month(db_session) -> None:
+    """Старый формат payload 'premium:<id>' (без тарифа) должен обрабатываться как month."""
+    user = await _make_user(db_session, telegram_id=70400)
+    payment_repo = PaymentRepository(db_session)
+
+    # Создаём pending в legacy-стиле: purpose='premium' (без тарифа).
+    payment = await payment_repo.create_pending(
+        user_id=user.id,
+        amount_kop=20000,
+        purpose="premium",
+        invoice_payload="premium:legacy_placeholder",
+    )
+    from sqlalchemy import update
+
+    from app.db.models.premium import Payment as PaymentModel
+
+    await db_session.execute(
+        update(PaymentModel)
+        .where(PaymentModel.id == payment.id)
+        .values(invoice_payload=f"premium:{payment.id}")
+    )
+    await db_session.flush()
+
+    msg = _mock_successful_payment_message(f"premium:{payment.id}", user.telegram_id)
+
+    before = datetime.now(tz=UTC)
+    service = PaymentService(db_session)
+    expires_at = await service.handle_successful_payment(msg, user)
+
+    # Legacy → month → 30 дней.
+    delta = expires_at - before
+    assert timedelta(days=30) - timedelta(seconds=5) <= delta <= timedelta(days=30, seconds=5)

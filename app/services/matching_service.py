@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from loguru import logger
 from sqlalchemy.exc import IntegrityError
@@ -36,9 +37,19 @@ from app.db.models.profile import Profile
 from app.db.repositories.dictionary_repo import DictionaryRepository
 from app.db.repositories.matching_repo import MatchingRepository
 from app.db.repositories.profile_repo import ProfileRepository
-from app.db.repositories.settings_repo import SettingsRepository
+from app.db.repositories.settings_repo import (
+    DEFAULT_LIKE_DAILY_LIMIT,
+    SETTING_LIKE_DAILY_LIMIT,
+    SettingsRepository,
+)
 from app.db.repositories.user_repo import UserRepository
+from app.services.access import has_premium_access
 from app.services.geo_service import get_geo_service
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
+
+    from app.db.models.user import User
 
 # Ключи в `app_settings`. Заведены в seed-миграции d96deed7e5da и 83faedaaca90.
 SETTING_W_FANDOM = "match_w_fandom"
@@ -50,6 +61,10 @@ SETTING_VIEW_COOLDOWN_DAYS = "view_cooldown_days"
 
 DEFAULT_VIEW_COOLDOWN_DAYS = 2
 DEFAULT_CANDIDATE_POOL = 200
+
+# TTL Redis-счётчика дневных лайков. Запас 48 часов — чтобы покрыть смену
+# часовых поясов и не зависеть от точного "обнуления в полночь UTC".
+LIKE_DAILY_COUNTER_TTL_SECONDS = 60 * 60 * 48
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,12 +97,16 @@ class LikeOutcome:
     """Результат `MatchingService.process_like`.
 
     Поля:
-    * `like_recorded` — True, если новая запись Like создана; False — если дубликат.
+    * `like_recorded` — True, если новая запись Like создана; False — если дубликат
+      ИЛИ если сработал дневной лимит лайков (см. `daily_limit_reached`).
     * `match_created` — True, если в результате (или ранее) встречного лайка возник Match.
     * `match_id` — id созданного Match (или существующего после race).
     * `other_user_telegram_id` — telegram_id собеседника, для уведомлений из хэндлера.
     * `other_user_id` — внутренний User.id собеседника.
     * `initial_message` — текст приветственного сообщения (если был superlike).
+    * `daily_limit_reached` — True, если попытка лайка отклонена из-за исчерпания
+      дневного лимита (`like_daily_limit`). Premium-доступ снимает лимит. Когда
+      флаг True — Like в БД НЕ записан и Redis-счётчик не инкрементирован.
     """
 
     like_recorded: bool
@@ -96,6 +115,7 @@ class LikeOutcome:
     other_user_telegram_id: int | None
     other_user_id: int | None
     initial_message: str | None
+    daily_limit_reached: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,6 +240,7 @@ class MatchingService:
         dictionary_repo: DictionaryRepository,
         user_repo: UserRepository | None = None,
         session: AsyncSession | None = None,
+        redis: Redis | None = None,
     ) -> None:
         self._profile_repo = profile_repo
         self._matching_repo = matching_repo
@@ -230,6 +251,10 @@ class MatchingService:
         # их можно не передавать (обратная совместимость со старыми вызовами).
         self._user_repo = user_repo
         self._session = session
+        # Redis нужен только для проверки дневного лимита лайков в `process_like`.
+        # Если None — лимит не проверяется (обратная совместимость для старых
+        # вызовов и юнит-тестов).
+        self._redis = redis
 
     async def _load_weights(self) -> MatchingWeights:
         """Читает веса из app_settings; для отсутствующих ключей — дефолты."""
@@ -476,6 +501,75 @@ class MatchingService:
                 return match
         return None
 
+    @staticmethod
+    def _like_quota_key(user_id: int, *, now: datetime | None = None) -> str:
+        """Redis-ключ дневного счётчика лайков для пользователя.
+
+        UTC-дата: переключение в 00:00 UTC. Берём дату «сегодня» один раз
+        и используем для consistent чтения/инкремента.
+        """
+        moment = now if now is not None else datetime.now(tz=UTC)
+        return f"likes:daily:{user_id}:{moment.date().isoformat()}"
+
+    async def _load_like_daily_limit(self) -> int:
+        """Читает значение `like_daily_limit` из app_settings, fallback на default."""
+        value = await self._settings_repo.get_int(SETTING_LIKE_DAILY_LIMIT)
+        return DEFAULT_LIKE_DAILY_LIMIT if value is None else value
+
+    async def _check_and_increment_like_quota(
+        self,
+        *,
+        from_user: User,
+    ) -> bool:
+        """Проверяет и инкрементирует дневной счётчик лайков.
+
+        Возвращает True, если лайк можно записать; False — если лимит исчерпан.
+
+        Premium-доступ короткозамыкает проверку (счётчик не трогается).
+        Если Redis не сконфигурирован в сервисе или ошибка сети — лимит не
+        действует (graceful degradation, fail-open для удобства тестов и
+        чтобы временный отказ Redis не блокировал лайки в проде).
+        """
+        if self._redis is None:
+            return True
+        if has_premium_access(from_user):
+            return True
+
+        limit = await self._load_like_daily_limit()
+        key = self._like_quota_key(from_user.id)
+        # Атомарно: incr + expire через pipeline. Это устраняет окно потери TTL
+        # (если процесс падал между incr и expire, ключ оставался навсегда).
+        # expire применяем на каждый incr — это идемпотентная операция, лишний
+        # RTT мы экономим за счёт pipeline.execute() в одном round-trip.
+        try:
+            pipe = self._redis.pipeline()
+            pipe.incr(key)
+            pipe.expire(key, LIKE_DAILY_COUNTER_TTL_SECONDS)
+            results = await pipe.execute()
+            count = int(results[0])
+        except Exception as exc:
+            logger.warning(
+                "like quota: pipeline incr/expire failed for key={} — failing open: {}",
+                key,
+                exc,
+            )
+            return True
+        if count > limit:
+            # Превысили — компенсируем инкремент, чтобы счётчик не уехал
+            # за лимит из-за неудачных попыток.
+            try:
+                await self._redis.decr(key)
+            except Exception as exc:  # pragma: no cover — graceful
+                logger.warning("like quota: decr (rollback) failed for key={}: {}", key, exc)
+            logger.info(
+                "like quota: user_id={} hit daily limit={} (count={})",
+                from_user.id,
+                limit,
+                count,
+            )
+            return False
+        return True
+
     async def process_like(
         self,
         *,
@@ -483,10 +577,16 @@ class MatchingService:
         to_user_id: int,
         kind: str = "like",
         message: str | None = None,
+        from_user: User | None = None,
     ) -> LikeOutcome:
         """Записывает лайк и при необходимости создаёт мэтч.
 
         Логика:
+        0. (Опционально, если переданы `from_user` и в конструктор передан
+           `redis`.) Проверяем дневной лимит лайков `like_daily_limit` из
+           app_settings. Premium-доступ снимает лимит. На превышении возвращаем
+           `LikeOutcome(like_recorded=False, daily_limit_reached=True, ...)`
+           БЕЗ записи Like и без расхода счётчика (декремент на откате).
         1. Пишем `Like` через SAVEPOINT. UNIQUE-конфликт → `like_recorded=False`,
            без падений; остальные поля результата — None.
         2. Если есть встречный лайк (`to_user` уже лайкнул `from_user`) — создаём
@@ -501,6 +601,20 @@ class MatchingService:
             raise RuntimeError(
                 "MatchingService.process_like requires `session` in constructor",
             )
+
+        # 0. Проверка дневного лимита лайков. Активна только если есть user+redis.
+        if from_user is not None and self._redis is not None:
+            quota_ok = await self._check_and_increment_like_quota(from_user=from_user)
+            if not quota_ok:
+                return LikeOutcome(
+                    like_recorded=False,
+                    match_created=False,
+                    match_id=None,
+                    other_user_telegram_id=None,
+                    other_user_id=None,
+                    initial_message=None,
+                    daily_limit_reached=True,
+                )
 
         # 1. Попытка записать Like.
         try:
@@ -519,6 +633,22 @@ class MatchingService:
                 kind,
                 exc,
             )
+            # Дубликат Like (UNIQUE-конфликт) — не должен тратить дневную
+            # квоту. Компенсируем инкремент, сделанный на шаге 0.
+            if (
+                from_user is not None
+                and self._redis is not None
+                and not has_premium_access(from_user)
+            ):
+                key = self._like_quota_key(from_user.id)
+                try:
+                    await self._redis.decr(key)
+                except Exception as decr_exc:  # pragma: no cover — graceful
+                    logger.warning(
+                        "like quota: decr (duplicate rollback) failed for key={}: {}",
+                        key,
+                        decr_exc,
+                    )
             return LikeOutcome(
                 like_recorded=False,
                 match_created=False,

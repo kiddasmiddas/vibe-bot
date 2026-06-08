@@ -31,6 +31,7 @@ from app.db.models.profile import (
 from app.db.models.promo import PromoPost, PromoPostRecipient
 from app.db.models.settings import AppSetting
 from app.db.models.user import User
+from app.db.models.vibe_by_photo import VibeByPhotoRequest
 
 __all__ = [
     "Admin",
@@ -64,5 +65,6 @@ __all__ = [
     "StopWord",
     "User",
     "Vibe",
+    "VibeByPhotoRequest",
     "ViewedProfile",
 ]

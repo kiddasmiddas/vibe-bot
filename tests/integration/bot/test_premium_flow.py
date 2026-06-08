@@ -52,7 +52,11 @@ async def test_on_premium_menu_renders_screen_and_logs_analytics(db_session) -> 
     message.answer.assert_awaited_once()
     text_sent = message.answer.call_args.args[0]
     assert texts.SCREEN_TITLE in text_sent
-    assert texts.BTN_BUY in str(message.answer.call_args)
+    # Экран теперь рисует три кнопки тарифов (Неделя/Месяц/Год) — без кнопки «Оплатить».
+    call_repr = str(message.answer.call_args)
+    assert texts.BTN_TARIFF_WEEK in call_repr
+    assert texts.BTN_TARIFF_MONTH in call_repr
+    assert texts.BTN_TARIFF_YEAR in call_repr
 
     events = await AnalyticsRepository(db_session).list_recent_for_user(user.id)
     assert any(e.event_type == EventType.PREMIUM_SCREEN_OPENED for e in events)
@@ -95,8 +99,9 @@ async def test_on_premium_menu_expired_premium_shows_screen(db_session) -> None:
 
 @pytest.mark.asyncio
 async def test_cb_premium_buy_sends_invoice(db_session) -> None:
-    """Нажатие «Оплатить» → bot.send_invoice вызван."""
+    """Нажатие кнопки тарифа → bot.send_invoice вызван c корректной ценой/payload."""
     from app.bot.handlers.premium import cb_premium_buy
+    from app.bot.keyboards.premium import PremiumActionCb
 
     user = await _make_user(db_session, telegram_id=80010)
 
@@ -108,11 +113,13 @@ async def test_cb_premium_buy_sends_invoice(db_session) -> None:
     bot = MagicMock()
     bot.send_invoice = AsyncMock()
 
+    cb_data = PremiumActionCb(action="buy", tariff="month")
+
     with patch("app.services.payment_service.settings") as mock_settings:
         mock_settings.yookassa_provider_token = "381764678:TEST:abc"
-        await cb_premium_buy(callback, user, db_session, bot)
+        await cb_premium_buy(callback, cb_data, user, db_session, bot)
 
     bot.send_invoice.assert_awaited_once()
     call_kwargs = bot.send_invoice.call_args.kwargs
     assert call_kwargs["currency"] == "RUB"
-    assert call_kwargs["payload"].startswith("premium:")
+    assert call_kwargs["payload"].startswith("premium:month:")

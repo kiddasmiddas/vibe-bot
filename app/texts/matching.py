@@ -58,3 +58,15 @@ DISLIKE_INCOMING_BTN = "👎"
 # Prepended to the candidate card when the candidate is not from the searcher's city.
 CANDIDATE_BADGE_NEIGHBOR_CITY = "Из соседнего города\n"
 CANDIDATE_BADGE_OTHER_REGION = "Из другого региона\n"
+
+# --- Undo (Premium-only): возврат к предыдущему кандидату ---
+BTN_UNDO = "↩️ Назад"
+UNDO_NO_PREVIOUS = "Это первая анкета в подборке."
+UNDO_CANDIDATE_UNAVAILABLE = "Эта анкета больше недоступна."
+
+# --- Like daily limit ---
+# {limit} — текущий настроенный лимит лайков в сутки (по умолчанию 30).
+LIKE_DAILY_LIMIT_REACHED_TEMPLATE = (
+    "Лимит лайков на сегодня ({limit}) исчерпан. "
+    "Возвращайся завтра или оформи Premium — там безлимит."
+)

@@ -60,6 +60,8 @@ CITY_NO_MATCH_NO_SUGGESTIONS = (
 CITY_CONFIRMED = "Записал город: {city}."
 BTN_CITY_ANY = "Не указывать город"
 BTN_DESIRED_VIBE_ANY = "Любой вайб / Не важно"
+# Premium-фича: кнопка «Вайб по фото» в пикере own_vibe.
+BTN_VIBE_BY_PHOTO = "🖼 Вайб по фото"
 
 # --- moderation ---
 MODERATION_REJECTED_STOP_WORD = (

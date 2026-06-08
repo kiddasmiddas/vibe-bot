@@ -26,3 +26,5 @@ class RegistrationStates(StatesGroup):
     own_vibe = State()
     desired_vibe = State()
     main_media = State()
+    # Premium-фича: пользователь загружает 1-3 фото, модератор подбирает вайб.
+    vibe_by_photo_upload = State()
