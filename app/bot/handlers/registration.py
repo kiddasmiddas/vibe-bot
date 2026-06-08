@@ -17,7 +17,7 @@ from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from loguru import logger
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,6 +39,7 @@ from app.bot.keyboards.registration import (
 from app.bot.states.registration import RegistrationStates
 from app.bot.utils.admin_notify import notify_admins_profile_pending
 from app.bot.utils.media_limits import photo_size_exceeded
+from app.bot.utils.multi_select import refresh_multi_select_kb as _refresh_multi_select_kb
 from app.bot.utils.pagination import MultiSelectCb, build_multi_select_kb
 from app.bot.utils.render_profile import render_profile_card
 from app.bot.utils.vibe_picker import (
@@ -86,13 +87,12 @@ async def _moderation_error_text(reason: str | None) -> str:
     return texts.MODERATION_REJECTED_STOP_WORD
 
 
-async def _send_fandoms_screen(
-    message: Message,
+async def _build_fandoms_kb(
     state: FSMContext,
     db_session: AsyncSession,
     *,
     page: int = 0,
-) -> None:
+) -> InlineKeyboardMarkup:
     fandoms = await DictionaryRepository(db_session).list_active(Fandom)
     data = await state.get_data()
     selected = set(data.get("fandom_ids", []))
@@ -105,16 +105,26 @@ async def _send_fandoms_screen(
         back_text=texts.BTN_BACK_STEP,
     )
     await state.update_data(fandom_page=page)
-    await message.answer(texts.ASK_FANDOMS, reply_markup=kb)
+    return kb
 
 
-async def _send_desired_fandoms_screen(
+async def _send_fandoms_screen(
     message: Message,
     state: FSMContext,
     db_session: AsyncSession,
     *,
     page: int = 0,
 ) -> None:
+    kb = await _build_fandoms_kb(state, db_session, page=page)
+    await message.answer(texts.ASK_FANDOMS, reply_markup=kb)
+
+
+async def _build_desired_fandoms_kb(
+    state: FSMContext,
+    db_session: AsyncSession,
+    *,
+    page: int = 0,
+) -> InlineKeyboardMarkup:
     fandoms = await DictionaryRepository(db_session).list_active(Fandom)
     data = await state.get_data()
     selected = set(data.get("desired_fandom_ids", []))
@@ -127,16 +137,26 @@ async def _send_desired_fandoms_screen(
         back_text=texts.BTN_BACK_STEP,
     )
     await state.update_data(desired_fandom_page=page)
-    await message.answer(texts.ASK_DESIRED_FANDOMS, reply_markup=kb)
+    return kb
 
 
-async def _send_interests_screen(
+async def _send_desired_fandoms_screen(
     message: Message,
     state: FSMContext,
     db_session: AsyncSession,
     *,
     page: int = 0,
 ) -> None:
+    kb = await _build_desired_fandoms_kb(state, db_session, page=page)
+    await message.answer(texts.ASK_DESIRED_FANDOMS, reply_markup=kb)
+
+
+async def _build_interests_kb(
+    state: FSMContext,
+    db_session: AsyncSession,
+    *,
+    page: int = 0,
+) -> InlineKeyboardMarkup:
     interests = await DictionaryRepository(db_session).list_active(Interest)
     data = await state.get_data()
     selected = set(data.get("interest_ids", []))
@@ -149,16 +169,26 @@ async def _send_interests_screen(
         back_text=texts.BTN_BACK_STEP,
     )
     await state.update_data(interest_page=page)
-    await message.answer(texts.ASK_INTERESTS, reply_markup=kb)
+    return kb
 
 
-async def _send_looking_for_genders_screen(
+async def _send_interests_screen(
     message: Message,
     state: FSMContext,
     db_session: AsyncSession,
     *,
     page: int = 0,
 ) -> None:
+    kb = await _build_interests_kb(state, db_session, page=page)
+    await message.answer(texts.ASK_INTERESTS, reply_markup=kb)
+
+
+async def _build_looking_for_genders_kb(
+    state: FSMContext,
+    db_session: AsyncSession,
+    *,
+    page: int = 0,
+) -> InlineKeyboardMarkup:
     genders = await DictionaryRepository(db_session).list_active(Gender)
     data = await state.get_data()
     selected = set(data.get("looking_for_gender_ids", []))
@@ -171,6 +201,17 @@ async def _send_looking_for_genders_screen(
         back_text=texts.BTN_BACK_STEP,
     )
     await state.update_data(looking_for_gender_page=page)
+    return kb
+
+
+async def _send_looking_for_genders_screen(
+    message: Message,
+    state: FSMContext,
+    db_session: AsyncSession,
+    *,
+    page: int = 0,
+) -> None:
+    kb = await _build_looking_for_genders_kb(state, db_session, page=page)
     await message.answer(texts.ASK_LOOKING_FOR_GENDERS, reply_markup=kb)
 
 
@@ -376,6 +417,7 @@ async def on_looking_for_genders(
         on_done=_after_looking_for_genders_done,
         on_back=_back_to_gender,
         on_page=_send_looking_for_genders_screen,
+        on_build_kb=_build_looking_for_genders_kb,
     )
 
 
@@ -624,6 +666,7 @@ async def on_fandoms(
         on_done=_after_fandoms_done,
         on_back=_back_to_city,
         on_page=_send_fandoms_screen,
+        on_build_kb=_build_fandoms_kb,
     )
 
 
@@ -669,6 +712,7 @@ async def on_desired_fandoms(
         on_done=_after_desired_fandoms_done,
         on_back=_back_to_fandoms,
         on_page=_send_desired_fandoms_screen,
+        on_build_kb=_build_desired_fandoms_kb,
     )
 
 
@@ -713,6 +757,7 @@ async def on_interests(
         on_done=_after_interests_done,
         on_back=_back_to_desired_fandoms,
         on_page=_send_interests_screen,
+        on_build_kb=_build_interests_kb,
     )
 
 
@@ -1157,6 +1202,10 @@ async def _finalize_registration(
 # ----------------------------- multi-select dispatcher -----------------------------
 
 
+# `_refresh_multi_select_kb` извлечён в `app/bot/utils/multi_select.py`
+# — переиспользуется в profile.py.
+
+
 async def _handle_multi_select(
     *,
     callback: CallbackQuery,
@@ -1170,11 +1219,15 @@ async def _handle_multi_select(
     on_done,
     on_back,
     on_page,
+    on_build_kb=None,
 ) -> None:
     """Общая логика toggle/page/done/back для multi-select экранов.
 
     Хранение выбранных id в FSM — list[int] (Redis JSON-friendly), на время
     операций конвертируется в set для быстрых проверок присутствия.
+
+    Если передан `on_build_kb`, на toggle/page редактируем существующее
+    сообщение (без миганий). Иначе fallback на старую логику delete + resend.
     """
     action = callback_data.action
 
@@ -1207,23 +1260,26 @@ async def _handle_multi_select(
         await state.update_data(**{state_key: list(selected)})
         page = int(data.get(page_key, 0))
         await callback.answer()
-        # Перерисовываем тот же экран с новой галочкой.
-        if callback.message is not None:
-            try:
-                await callback.message.delete()
-            except TelegramAPIError:
-                pass
-            await on_page(callback.message, state, db_session, page=page)
+        await _refresh_multi_select_kb(
+            callback,
+            state,
+            db_session,
+            page=page,
+            on_build_kb=on_build_kb,
+            on_page=on_page,
+        )
         return
 
     if action == "page":
         await callback.answer()
-        if callback.message is not None:
-            try:
-                await callback.message.delete()
-            except TelegramAPIError:
-                pass
-            await on_page(callback.message, state, db_session, page=callback_data.value)
+        await _refresh_multi_select_kb(
+            callback,
+            state,
+            db_session,
+            page=callback_data.value,
+            on_build_kb=on_build_kb,
+            on_page=on_page,
+        )
         return
 
     await callback.answer()
