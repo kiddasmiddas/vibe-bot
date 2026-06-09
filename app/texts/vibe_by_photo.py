@@ -86,3 +86,12 @@ ADMIN_QUEUE_EMPTY = "Нет запросов, ожидающих модерац�
 ADMIN_QUEUE_FOUND_TEMPLATE = "Найдено: {count}"
 ADMIN_QUEUE_ITEM_TEMPLATE = "#{request_id} · {username} · {photos_count} фото · {origin}"
 ADMIN_QUEUE_BTN_OPEN_TEMPLATE = "#{request_id} {username}"
+
+# --- уведомление модератору при создании запроса (лёгкий ping, БЕЗ фото) ---
+ADMIN_NEW_REQUEST_NOTIFICATION_TEMPLATE = (
+    "🔔 Новый запрос #{request_id} «Вайб по фото»\n"
+    "От: {username} (user_id={user_id})\n"
+    "Источник: {origin}\n\n"
+    "Открой <b>/admin → 🖼 Вайб по фото</b>, чтобы посмотреть фото и подобрать вайб."
+)
+ADMIN_NEW_REQUEST_BTN_OPEN_QUEUE = "🖼 Открыть очередь"

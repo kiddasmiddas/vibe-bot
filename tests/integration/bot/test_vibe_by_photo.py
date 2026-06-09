@@ -258,20 +258,20 @@ async def test_done_creates_request_and_dispatches_to_staging_and_moderators(
     assert str(req.id) in staging_calls[0].kwargs["caption"]
     assert staging_calls[1].kwargs.get("caption") is None
 
-    # Модератору в личку улетел media_group (2 фотки) + send_message с пикером.
-    bot.send_media_group.assert_awaited_once()
-    media_call = bot.send_media_group.await_args
-    assert media_call.kwargs["chat_id"] == moderator.telegram_id
-
-    # Пикер (Msg2): send_message с reply_markup и текстом, упоминающим request.
-    picker_calls = [
+    # Модератору в личку улетел ТОЛЬКО короткий ping (без фото / без пикера).
+    bot.send_media_group.assert_not_awaited()
+    notif_calls = [
         c
         for c in bot.send_message.await_args_list
         if c.kwargs.get("chat_id") == moderator.telegram_id
     ]
-    assert len(picker_calls) == 1
-    assert picker_calls[0].kwargs.get("reply_markup") is not None
-    assert str(req.id) in picker_calls[0].kwargs["text"]
+    assert len(notif_calls) == 1
+    notif_kwargs = notif_calls[0].kwargs
+    assert notif_kwargs.get("reply_markup") is not None  # кнопка «Открыть очередь»
+    assert str(req.id) in notif_kwargs["text"]
+    assert "alice" in notif_kwargs["text"]
+    # Это уведомление, не пикер вайбов — текст не должен содержать «страница».
+    assert "страница" not in notif_kwargs["text"].lower()
 
 
 # --------------------------- Модератор: pick ---------------------------

@@ -32,6 +32,7 @@ from app.bot.keyboards.admin import (
     VibeByPhotoAssignCb,
     VibeByPhotoQueueCb,
     vibe_by_photo_moderate_kb,
+    vibe_by_photo_notification_kb,
     vibe_by_photo_queue_kb,
 )
 from app.db.models.dictionaries import Vibe
@@ -622,7 +623,10 @@ async def dispatch_vbp_request(
             except TelegramAPIError as exc:
                 logger.warning("vbp: failed to send photo to staging chat: {}", exc)
 
-    # 2) Пуш модераторам в личку — у каждого пара (Msg1 фото + Msg2 пикер).
+    # 2) Уведомление модераторам в личку — короткий ping + кнопка «Открыть очередь».
+    #    Сам пикер вайбов открывается уже из /admin → 🖼 Вайб по фото; так
+    #    модератор не получает 5+ сообщений на каждый запрос и решает, когда
+    #    «нырять» в модерацию.
     notified_chat_ids: set[int] = set()
     for admin_tg_id in app_settings.admin_telegram_ids:
         notified_chat_ids.add(admin_tg_id)
@@ -636,23 +640,32 @@ async def dispatch_vbp_request(
             request.id,
         )
 
+    notification_text = texts.ADMIN_NEW_REQUEST_NOTIFICATION_TEMPLATE.format(
+        request_id=request.id,
+        user_id=user.id,
+        username=username_display,
+        origin=origin,
+    )
+    notification_kb = vibe_by_photo_notification_kb(
+        open_queue_text=texts.ADMIN_NEW_REQUEST_BTN_OPEN_QUEUE
+    )
+
     for chat_id in notified_chat_ids:
         try:
-            await send_request_pair(
-                bot,
+            await bot.send_message(
                 chat_id=chat_id,
-                db_session=db_session,
-                request=request,
-                page=0,
+                text=notification_text,
+                reply_markup=notification_kb,
+                parse_mode="HTML",
             )
         # Ловим Exception, а не только TelegramAPIError: один таймаут/сетевой
         # сбой к одному модератору не должен абортить рассылку остальным
         # (и тем более — откатывать уже созданную запись).
         except Exception as exc:
             logger.warning(
-                "vbp: failed to push request {} to moderator {}: {}",
-                request.id,
+                "vbp: failed to notify moderator {} about request {}: {}",
                 chat_id,
+                request.id,
                 exc,
             )
 

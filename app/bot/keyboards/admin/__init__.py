@@ -874,6 +874,17 @@ def vibe_by_photo_moderate_kb(
     return b.as_markup()
 
 
+def vibe_by_photo_notification_kb(open_queue_text: str) -> InlineKeyboardMarkup:
+    """Мини-клавиатура для уведомления модератора о новом запросе VBP.
+
+    Одна кнопка — переход в раздел очереди в /admin. Сам пикер вайбов
+    модератор открывает уже оттуда; в личке хранится только короткий ping.
+    """
+    b = InlineKeyboardBuilder()
+    b.button(text=open_queue_text, callback_data=AdminMenuCb(action="vbp_queue"))
+    return b.as_markup()
+
+
 def vibe_by_photo_queue_kb(
     requests: list[tuple[int, str]],
     *,
