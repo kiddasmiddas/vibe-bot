@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.vibe_by_photo import VibeByPhotoRequest
@@ -64,6 +64,82 @@ class VibeByPhotoRepository:
         )
         return list((await self._session.execute(stmt)).scalars().all())
 
+    async def get_neighbor_pending(
+        self, current_request_id: int, *, direction: str
+    ) -> VibeByPhotoRequest | None:
+        """Соседний pending-запрос относительно current_request_id.
+
+        direction='next' — ближайший pending позже текущего по created_at;
+        direction='prev' — ближайший pending раньше текущего.
+        Если текущий запрос удалён (CASCADE), fallback на самый старый
+        pending (для direction='next') или None (для 'prev').
+        """
+        current = await self._session.get(VibeByPhotoRequest, current_request_id)
+        if current is None:
+            # Текущий запрос пропал (юзер удалил аккаунт, ON DELETE CASCADE
+            # снёс request). Для skip-навигации возвращаем самый старый pending;
+            # для prev возвращаем None (некуда возвращаться).
+            if direction == "next":
+                return await self.get_first_pending()
+            return None
+
+        # tie-break по id: если несколько rows вставлены в одной транзакции
+        # (func.now() выдаёт одинаковый timestamp), без id сравнение даст None.
+        if direction == "next":
+            stmt = (
+                select(VibeByPhotoRequest)
+                .where(
+                    VibeByPhotoRequest.status == "pending",
+                    or_(
+                        VibeByPhotoRequest.created_at > current.created_at,
+                        and_(
+                            VibeByPhotoRequest.created_at == current.created_at,
+                            VibeByPhotoRequest.id > current.id,
+                        ),
+                    ),
+                )
+                .order_by(
+                    VibeByPhotoRequest.created_at.asc(),
+                    VibeByPhotoRequest.id.asc(),
+                )
+                .limit(1)
+            )
+        elif direction == "prev":
+            stmt = (
+                select(VibeByPhotoRequest)
+                .where(
+                    VibeByPhotoRequest.status == "pending",
+                    or_(
+                        VibeByPhotoRequest.created_at < current.created_at,
+                        and_(
+                            VibeByPhotoRequest.created_at == current.created_at,
+                            VibeByPhotoRequest.id < current.id,
+                        ),
+                    ),
+                )
+                .order_by(
+                    VibeByPhotoRequest.created_at.desc(),
+                    VibeByPhotoRequest.id.desc(),
+                )
+                .limit(1)
+            )
+        else:
+            raise ValueError(f"direction must be 'next' or 'prev', got {direction!r}")
+
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
+    async def get_first_pending(
+        self, *, excluded_id: int | None = None
+    ) -> VibeByPhotoRequest | None:
+        """Самый старый pending-запрос. ``excluded_id`` исключает конкретный id —
+        нужно для auto-advance после pick/reject, чтобы не вернуть тот же
+        запрос из-за рассинхрона identity-map и WHERE-фильтра."""
+        stmt = select(VibeByPhotoRequest).where(VibeByPhotoRequest.status == "pending")
+        if excluded_id is not None:
+            stmt = stmt.where(VibeByPhotoRequest.id != excluded_id)
+        stmt = stmt.order_by(VibeByPhotoRequest.created_at.asc()).limit(1)
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
     async def set_assigned(
         self,
         request_id: int,
@@ -71,18 +147,28 @@ class VibeByPhotoRepository:
         vibe_id: int,
         admin_user_id: int,
     ) -> VibeByPhotoRequest | None:
-        """Помечает запрос как completed и сохраняет назначенный вайб."""
+        """Атомарно помечает запрос completed (только если он pending).
+
+        Возвращает обновлённый объект, либо None если запрос уже обработан
+        другим модератором (rowcount=0). Это закрывает TOCTOU-окно между
+        прочтением статуса в хэндлере и записью.
+        """
         stmt = (
             update(VibeByPhotoRequest)
-            .where(VibeByPhotoRequest.id == request_id)
+            .where(
+                VibeByPhotoRequest.id == request_id,
+                VibeByPhotoRequest.status == "pending",
+            )
             .values(
                 status="completed",
                 assigned_vibe_id=vibe_id,
                 assigned_by_admin_id=admin_user_id,
             )
         )
-        await self._session.execute(stmt)
+        result = await self._session.execute(stmt)
         await self._session.flush()
+        if result.rowcount == 0:
+            return None
         req = await self._session.get(VibeByPhotoRequest, request_id)
         if req is not None:
             await self._session.refresh(req)
@@ -94,17 +180,25 @@ class VibeByPhotoRepository:
         *,
         admin_user_id: int,
     ) -> VibeByPhotoRequest | None:
-        """Помечает запрос как rejected (модератор отказал)."""
+        """Атомарно помечает запрос rejected (только если он pending).
+
+        Возвращает обновлённый объект, либо None если запрос уже обработан.
+        """
         stmt = (
             update(VibeByPhotoRequest)
-            .where(VibeByPhotoRequest.id == request_id)
+            .where(
+                VibeByPhotoRequest.id == request_id,
+                VibeByPhotoRequest.status == "pending",
+            )
             .values(
                 status="rejected",
                 assigned_by_admin_id=admin_user_id,
             )
         )
-        await self._session.execute(stmt)
+        result = await self._session.execute(stmt)
         await self._session.flush()
+        if result.rowcount == 0:
+            return None
         req = await self._session.get(VibeByPhotoRequest, request_id)
         if req is not None:
             await self._session.refresh(req)

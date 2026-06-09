@@ -1,7 +1,9 @@
 """Тексты Premium-фичи «Вайб по фото».
 
-Юзер шлёт 1-3 фото, модератор подбирает вайб по картинкам и присваивает
-профилю. Все строки, видимые пользователю и модератору, — здесь.
+Юзер шлёт 1-3 фото, модератор подбирает вайб по картинкам в личке (или
+открывает запрос из /admin) и присваивает профилю. Staging-чат — тупо
+архив медиа без управления. Все строки, видимые пользователю и модератору,
+— здесь.
 """
 
 from __future__ import annotations
@@ -36,17 +38,41 @@ REJECTED = (
 CANCELLED = "Окей, возвращаемся к обычному выбору вайба."
 NOT_PREMIUM = "Эта функция доступна только с Premium."
 
-# --- сообщение в staging-чате для модератора ---
-# Важно: бот рендерит с parse_mode=HTML. {username} в registration.py уже
-# содержит готовое экранированное "@xxx" или "(нет)" — здесь его не экранируем.
-ADMIN_CAPTION_TEMPLATE = (
-    "🖼 Запрос #{request_id} — вайб по фото\n"
-    "user_id={user_id} username={username}\n"
-    "Origin: {origin}\n\n"
-    "Выбери вайб для пользователя или нажми «Отклонить»."
+# --- staging-чат: подпись (КНОПКИ не прикладываем; чат — архив медиа) ---
+# Bot работает с parse_mode=HTML. {username} приходит уже экранированный.
+STAGING_CAPTION_TEMPLATE = (
+    "🗂 Архив: запрос #{request_id}\nuser_id={user_id} username={username}\norigin: {origin}"
 )
 
-# Ошибка модератора при тапе на старую кнопку.
+# --- сообщение модератору в личке: заголовок над фотками ---
+ADMIN_REQUEST_HEADER_TEMPLATE = (
+    "🖼 <b>Запрос #{request_id}</b> — вайб по фото\n"
+    "От: {username} (user_id={user_id})\n"
+    "Источник: {origin}{profile_block}"
+)
+# Опциональный блок про существующий профиль (если origin=profile_edit).
+ADMIN_REQUEST_PROFILE_BLOCK_TEMPLATE = (
+    "\n\n<b>Текущий профиль:</b> {nickname}, {age}, {city}\nСейчас выбран вайб: {current_vibe}"
+)
+ADMIN_REQUEST_PROFILE_BLOCK_NO_PROFILE = ""  # для origin=registration
+
+# --- сообщение модератору в личке: пикер вайбов ---
+ADMIN_PICK_VIBE_HEADER_TEMPLATE = (
+    "Выбери вайб для запроса #{request_id} (страница {page_num}/{total_pages}):"
+)
+ADMIN_PAGE_INDICATOR_TEMPLATE = "{page_num}/{total_pages}"
+
+ADMIN_BTN_PAGE_PREV = "‹"
+ADMIN_BTN_PAGE_NEXT = "›"
+ADMIN_BTN_PREV_REQUEST = "↩️ К прошлой"
+ADMIN_BTN_SKIP_REQUEST = "⏭ Пропустить"
+ADMIN_BTN_REJECT = "❌ Отклонить"
+
+ADMIN_NO_PREV_REQUEST = "Это первый запрос в очереди."
+ADMIN_NO_NEXT_REQUEST = "Это последний запрос в очереди."
+ADMIN_QUEUE_EMPTY_AFTER_ACTION = "✅ Готово. Больше pending-запросов нет."
+
+# Ошибки при тапе по устаревшей кнопке.
 ADMIN_REQUEST_NOT_FOUND = "Запрос не найден или уже обработан."
 ADMIN_ALREADY_HANDLED = "Запрос уже обработан другим модератором."
 ADMIN_NOT_AUTHORIZED = "Доступно только модераторам и админам."
@@ -54,7 +80,9 @@ ADMIN_NOT_AUTHORIZED = "Доступно только модераторам и 
 ADMIN_ASSIGNED_TEMPLATE = "✅ Вайб «{vibe_title}» назначен пользователю user_id={user_id}."
 ADMIN_REJECTED_TEMPLATE = "❌ Запрос #{request_id} отклонён."
 
-ADMIN_BTN_REJECT = "❌ Отклонить"
-
-# Заголовок над клавиатурой выбора вайба (для модератора).
-ADMIN_PICK_VIBE_HEADER = "Выбери вайб (1-36):"
+# --- раздел /admin → «Вайб по фото» ---
+ADMIN_QUEUE_TITLE = "🖼 <b>Очередь «Вайб по фото»</b>"
+ADMIN_QUEUE_EMPTY = "Нет запросов, ожидающих модерации."
+ADMIN_QUEUE_FOUND_TEMPLATE = "Найдено: {count}"
+ADMIN_QUEUE_ITEM_TEMPLATE = "#{request_id} · {username} · {photos_count} фото · {origin}"
+ADMIN_QUEUE_BTN_OPEN_TEMPLATE = "#{request_id} {username}"

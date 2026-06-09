@@ -17,6 +17,7 @@ ADMIN_MENU_BTN_SETTINGS = "Настройки"
 ADMIN_MENU_BTN_REVIEW = "На проверке"
 ADMIN_MENU_BTN_STOPWORDS = "Стоп-листы"
 ADMIN_MENU_BTN_ANALYTICS = "Аналитика"
+ADMIN_MENU_BTN_VBP = "🖼 Вайб по фото"
 ADMIN_MENU_BTN_BACK = "Назад"
 ADMIN_MENU_BTN_HOME = "🏠 В админ-меню"
 

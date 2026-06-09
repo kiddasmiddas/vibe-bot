@@ -95,14 +95,33 @@ class AdminFeedReviewCb(CallbackData, prefix="adm_frv"):
 
 
 class VibeByPhotoAssignCb(CallbackData, prefix="vbp_assign"):
-    """Модераторская кнопка с номером вайба для запроса «Вайб по фото».
+    """Модераторская кнопка для запроса «Вайб по фото».
 
-    action: 'pick' — назначить выбранный vibe_number; 'reject' — отказать.
+    action:
+      - 'pick'   — назначить выбранный vibe_number;
+      - 'reject' — отказать;
+      - 'page'   — перейти на страницу page (внутри одного запроса);
+      - 'skip'   — пропустить, перейти к следующему pending;
+      - 'prev'   — вернуться к предыдущему pending;
+      - 'noop'   — заглушка (индикатор страницы и т.п.).
     """
 
     action: str
     request_id: int
     vibe_number: int = 0
+    page: int = 0
+
+
+class VibeByPhotoQueueCb(CallbackData, prefix="vbp_queue"):
+    """Раздел /admin → «Вайб по фото»: список + открыть конкретный запрос.
+
+    action:
+      - 'list'  — показать список pending-запросов;
+      - 'open'  — открыть выбранный запрос (request_id) в модераторской ленте.
+    """
+
+    action: str
+    request_id: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -136,11 +155,13 @@ def admin_main_menu_kb() -> InlineKeyboardMarkup:
         ADMIN_MENU_BTN_SETTINGS,
         ADMIN_MENU_BTN_STOPWORDS,
         ADMIN_MENU_BTN_USERS,
+        ADMIN_MENU_BTN_VBP,
     )
 
     b = InlineKeyboardBuilder()
     b.button(text=ADMIN_MENU_BTN_USERS, callback_data=AdminMenuCb(action="users"))
     b.button(text=ADMIN_MENU_BTN_COMPLAINTS, callback_data=AdminMenuCb(action="complaints"))
+    b.button(text=ADMIN_MENU_BTN_VBP, callback_data=AdminMenuCb(action="vbp_queue"))
     b.button(text=ADMIN_MENU_BTN_ALLEY, callback_data=AdminMenuCb(action="alley"))
     b.button(text=ADMIN_MENU_BTN_FEED, callback_data=AdminMenuCb(action="feed"))
     b.button(text=ADMIN_MENU_BTN_PREMIUM, callback_data=AdminMenuCb(action="premium"))
@@ -750,34 +771,128 @@ def feed_review_card_kb(
     return b.as_markup()
 
 
+VBP_TOTAL_VIBES = 36
+VBP_PAGE_SIZE = 9
+VBP_TOTAL_PAGES = 4  # ceil(36 / 9)
+
+
 def vibe_by_photo_moderate_kb(
     request_id: int,
     *,
-    total_vibes: int = 36,
-    columns: int = 6,
+    page: int = 0,
+    page_size: int = VBP_PAGE_SIZE,
+    total_pages: int = VBP_TOTAL_PAGES,
+    total_vibes: int = VBP_TOTAL_VIBES,
+    page_prev_text: str = "‹",
+    page_next_text: str = "›",
+    prev_request_text: str = "↩️ К прошлой",
+    skip_request_text: str = "⏭ Пропустить",
     reject_text: str = "❌ Отклонить",
 ) -> InlineKeyboardMarkup:
-    """Клавиатура модератора для назначения вайба запросу «Вайб по фото».
+    """Клавиатура модератора для запроса «Вайб по фото» с пагинацией.
 
-    Сетка из 36 кнопок (по умолчанию 6×6) с номерами вайбов 1..36 +
-    отдельная кнопка «Отклонить». При тапе по номеру модератор подбирает
-    вайб с соответствующим ``number`` в БД.
+    Лейаут:
+      - 3×3 кнопок вайбов для текущей страницы (1..9, 10..18, 19..27, 28..36).
+      - Ряд пагинации: « / индикатор «N/total» / ».
+      - Ряд request-навигации: «К прошлой» / «Пропустить».
+      - Ряд «Отклонить» во всю ширину.
+
+    page — 0-based индекс страницы. При page<=0 или page>=total_pages-1
+    соответствующие кнопки пагинации становятся «заглушками» (action='noop').
+    Аналогично для skip/prev — call-site решает, нужно ли в callback
+    подсветить отсутствие соседа (это делается уже в handler через answer()).
     """
     b = InlineKeyboardBuilder()
-    for n in range(1, total_vibes + 1):
+
+    # Вайбы текущей страницы.
+    first_number = page * page_size + 1
+    last_number = min(first_number + page_size - 1, total_vibes)
+    for n in range(first_number, last_number + 1):
         b.button(
             text=str(n),
-            callback_data=VibeByPhotoAssignCb(action="pick", request_id=request_id, vibe_number=n),
+            callback_data=VibeByPhotoAssignCb(
+                action="pick", request_id=request_id, vibe_number=n, page=page
+            ),
+        )
+
+    # Ряд пагинации (page nav внутри одного запроса).
+    if page > 0:
+        b.button(
+            text=page_prev_text,
+            callback_data=VibeByPhotoAssignCb(action="page", request_id=request_id, page=page - 1),
+        )
+    else:
+        b.button(
+            text=" ",
+            callback_data=VibeByPhotoAssignCb(action="noop", request_id=request_id, page=page),
         )
     b.button(
-        text=reject_text,
-        callback_data=VibeByPhotoAssignCb(action="reject", request_id=request_id),
+        text=f"{page + 1}/{total_pages}",
+        callback_data=VibeByPhotoAssignCb(action="noop", request_id=request_id, page=page),
     )
-    rows = [columns] * (total_vibes // columns)
-    # хвост, если осталось
-    if total_vibes % columns:
-        rows.append(total_vibes % columns)
-    rows.append(1)
+    if page < total_pages - 1:
+        b.button(
+            text=page_next_text,
+            callback_data=VibeByPhotoAssignCb(action="page", request_id=request_id, page=page + 1),
+        )
+    else:
+        b.button(
+            text=" ",
+            callback_data=VibeByPhotoAssignCb(action="noop", request_id=request_id, page=page),
+        )
+
+    # Ряд request-навигации.
+    b.button(
+        text=prev_request_text,
+        callback_data=VibeByPhotoAssignCb(action="prev", request_id=request_id, page=page),
+    )
+    b.button(
+        text=skip_request_text,
+        callback_data=VibeByPhotoAssignCb(action="skip", request_id=request_id, page=page),
+    )
+
+    # Reject.
+    b.button(
+        text=reject_text,
+        callback_data=VibeByPhotoAssignCb(action="reject", request_id=request_id, page=page),
+    )
+
+    # Лейаут:
+    # ряд1-3: 9 вайбов 3×3, ряд4: 3 кнопки пагинации,
+    # ряд5: 2 кнопки request-nav, ряд6: 1 reject.
+    actual_vibe_count = last_number - first_number + 1
+    rows: list[int] = []
+    remaining = actual_vibe_count
+    for _ in range(3):
+        if remaining <= 0:
+            break
+        take = min(3, remaining)
+        rows.append(take)
+        remaining -= take
+    rows.extend([3, 2, 1])
+    b.adjust(*rows)
+    return b.as_markup()
+
+
+def vibe_by_photo_queue_kb(
+    requests: list[tuple[int, str]],
+    *,
+    home_text: str,
+) -> InlineKeyboardMarkup:
+    """Клавиатура раздела «Вайб по фото» в /admin: список pending + кнопка домой.
+
+    requests — список (request_id, label) для отображения одной кнопкой на строку.
+    Возврат в админ-меню — одна кнопка «🏠 В админ-меню» (две кнопки с одной
+    логикой выглядят странно).
+    """
+    b = InlineKeyboardBuilder()
+    for request_id, label in requests:
+        b.button(
+            text=label,
+            callback_data=VibeByPhotoQueueCb(action="open", request_id=request_id),
+        )
+    b.button(text=home_text, callback_data=AdminMenuCb(action="menu"))
+    rows: list[int] = [1] * len(requests) + [1]
     b.adjust(*rows)
     return b.as_markup()
 

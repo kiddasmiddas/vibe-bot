@@ -22,7 +22,7 @@ from loguru import logger
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bot.keyboards.admin import vibe_by_photo_moderate_kb
+from app.bot.handlers.admin.vibe_by_photo import dispatch_vbp_request
 from app.bot.keyboards.main_menu import main_menu_kb
 from app.bot.keyboards.registration import (
     CaptchaCb,
@@ -52,7 +52,6 @@ from app.bot.utils.vibe_picker import (
     edit_vibe_picker,
     send_vibe_picker,
 )
-from app.config import settings as app_settings
 from app.db.models.dictionaries import Fandom, Gender, Interest, Vibe
 from app.db.models.user import User
 from app.db.repositories.analytics_repo import AnalyticsRepository
@@ -60,7 +59,6 @@ from app.db.repositories.dictionary_repo import DictionaryRepository
 from app.db.repositories.moderation_repo import ModerationRepository
 from app.db.repositories.profile_repo import ProfileRepository
 from app.db.repositories.settings_repo import SettingsRepository
-from app.db.repositories.vibe_by_photo_repo import VibeByPhotoRepository
 from app.services.access import has_premium_access
 from app.services.analytics_events import EventType
 from app.services.content_moderation_service import ContentModerationService
@@ -1140,15 +1138,6 @@ async def on_vibe_by_photo_wrong_type(message: Message) -> None:
     await message.answer(vbp_texts.WRONG_TYPE)
 
 
-def _staging_chat_id() -> int | None:
-    """Куда слать фото: settings.media_staging_chat_id или admin[0] fallback."""
-    if app_settings.media_staging_chat_id is not None:
-        return app_settings.media_staging_chat_id
-    if app_settings.admin_telegram_ids:
-        return app_settings.admin_telegram_ids[0]
-    return None
-
-
 async def _vibe_by_photo_finalize(
     *,
     message: Message,
@@ -1157,7 +1146,11 @@ async def _vibe_by_photo_finalize(
     db_session: AsyncSession,
     bot: Bot,
 ) -> None:
-    """Создаёт запрос в БД, шлёт фото в staging-чат, уведомляет юзера."""
+    """Финализация Premium-фичи «Вайб по фото» в потоке регистрации.
+
+    Достаёт собранные file_ids + origin из FSM и делегирует в
+    ``dispatch_vbp_request`` (общая логика для registration и profile_edit).
+    """
     data = await state.get_data()
     file_ids: list[str] = list(data.get("vbp_photo_file_ids", []))
     origin: str = str(data.get("vbp_origin", "registration"))
@@ -1166,59 +1159,11 @@ async def _vibe_by_photo_finalize(
         await message.answer(vbp_texts.PHOTO_NEED_AT_LEAST_ONE)
         return
 
-    chat_id = _staging_chat_id()
-    if chat_id is None:
-        logger.error("vbp: neither MEDIA_STAGING_CHAT_ID nor ADMIN_TELEGRAM_IDS configured")
-        await message.answer(texts.PROFILE_SAVE_FAILED)
-        return
-
-    # Если есть профиль — привяжем запрос к нему (origin=profile_edit обычно).
-    profile = await ProfileRepository(db_session).get_by_user_id(user.id)
-    profile_id = profile.id if profile is not None else None
-
-    repo = VibeByPhotoRepository(db_session)
-    request = await repo.create_request(
-        user_id=user.id,
-        origin=origin,
-        photo_file_ids=file_ids,
-        profile_id=profile_id,
+    await dispatch_vbp_request(
+        bot, db_session=db_session, user=user, file_ids=file_ids, origin=origin
     )
-    await db_session.flush()
-
-    # Bot работает с parse_mode=HTML (DefaultBotProperties). Telegram username
-    # ограничен [A-Za-z0-9_], но защищаемся (defence-in-depth: вдруг попадёт
-    # «странный» username из старого аккаунта/импорта).
-    from html import escape as _html_escape
-
-    username = user.username or ""
-    username_display = f"@{_html_escape(username)}" if username else "(нет)"
-    caption = vbp_texts.ADMIN_CAPTION_TEMPLATE.format(
-        request_id=request.id,
-        user_id=user.id,
-        username=username_display,
-        origin=origin,
-    )
-    kb = vibe_by_photo_moderate_kb(
-        request.id,
-        reject_text=vbp_texts.ADMIN_BTN_REJECT,
-    )
-    # Шлём каждое фото отдельным сообщением. Кнопки выбора вайба — только на
-    # последнем (чтобы не было дублей клавиатур).
-    for idx, fid in enumerate(file_ids):
-        is_last = idx == len(file_ids) - 1
-        try:
-            if is_last:
-                await bot.send_photo(chat_id=chat_id, photo=fid, caption=caption, reply_markup=kb)
-            else:
-                await bot.send_photo(chat_id=chat_id, photo=fid)
-        except TelegramAPIError as exc:
-            logger.warning("vbp: failed to send photo to staging chat: {}", exc)
 
     await message.answer(vbp_texts.SENT_TO_MOD)
-
-    # Уйти из FSM-state vibe_by_photo_upload. В обоих сценариях (registration
-    # и profile_edit) поведение одинаковое: state чистим, юзер видит SENT_TO_MOD
-    # и ждёт результат от модератора в фоне. /cancel остаётся доступен.
     await state.clear()
 
 

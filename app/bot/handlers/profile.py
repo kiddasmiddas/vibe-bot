@@ -11,7 +11,6 @@ from __future__ import annotations
 from io import BytesIO
 
 from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
@@ -19,7 +18,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bot.keyboards.admin import vibe_by_photo_moderate_kb
+from app.bot.handlers.admin.vibe_by_photo import dispatch_vbp_request
 from app.bot.keyboards.main_menu import main_menu_kb
 from app.bot.keyboards.profile_edit import (
     ProfileEditCb,
@@ -49,7 +48,6 @@ from app.bot.utils.multi_select import refresh_multi_select_kb as _refresh_multi
 from app.bot.utils.pagination import MultiSelectCb, build_multi_select_kb
 from app.bot.utils.render_profile import render_profile_card, send_premium_media
 from app.bot.utils.vibe_picker import edit_vibe_picker, send_vibe_picker
-from app.config import settings as app_settings
 from app.db.models.dictionaries import Fandom, Gender, Interest, Vibe
 from app.db.models.profile import Profile
 from app.db.models.user import User
@@ -58,7 +56,6 @@ from app.db.repositories.dictionary_repo import DictionaryRepository
 from app.db.repositories.moderation_repo import ModerationRepository
 from app.db.repositories.profile_repo import ProfileRepository
 from app.db.repositories.settings_repo import SettingsRepository
-from app.db.repositories.vibe_by_photo_repo import VibeByPhotoRepository
 from app.services.access import has_premium_access
 from app.services.analytics_events import EventType
 from app.services.content_moderation_service import ContentModerationService
@@ -1341,15 +1338,6 @@ async def on_edit_vibe_by_photo_wrong_type(message: Message) -> None:
     await message.answer(vbp_texts.WRONG_TYPE)
 
 
-def _staging_chat_id_profile() -> int | None:
-    """Куда слать фото для модератора: staging_chat_id или admin[0]."""
-    if app_settings.media_staging_chat_id is not None:
-        return app_settings.media_staging_chat_id
-    if app_settings.admin_telegram_ids:
-        return app_settings.admin_telegram_ids[0]
-    return None
-
-
 async def _profile_vbp_finalize(
     *,
     message: Message,
@@ -1358,48 +1346,20 @@ async def _profile_vbp_finalize(
     db_session: AsyncSession,
     bot: Bot,
 ) -> None:
-    """Создаёт запрос в БД и шлёт фото в staging-чат (profile_edit)."""
+    """Финализация Premium-фичи «Вайб по фото» в потоке profile_edit.
+
+    Делегирует в общую функцию ``dispatch_vbp_request`` (та же, что
+    используется из registration.py).
+    """
     data = await state.get_data()
     file_ids: list[str] = list(data.get("vbp_photo_file_ids", []))
     if not file_ids:
         await message.answer(vbp_texts.PHOTO_NEED_AT_LEAST_ONE)
         return
 
-    chat_id = _staging_chat_id_profile()
-    if chat_id is None:
-        logger.error("vbp (profile): no staging chat configured")
-        await message.answer(reg_texts.PROFILE_SAVE_FAILED)
-        return
-
-    profile = await ProfileRepository(db_session).get_by_user_id(user.id)
-    profile_id = profile.id if profile is not None else None
-
-    repo = VibeByPhotoRepository(db_session)
-    request = await repo.create_request(
-        user_id=user.id,
-        origin="profile_edit",
-        photo_file_ids=file_ids,
-        profile_id=profile_id,
+    await dispatch_vbp_request(
+        bot, db_session=db_session, user=user, file_ids=file_ids, origin="profile_edit"
     )
-    await db_session.flush()
-
-    username = user.username or ""
-    caption = vbp_texts.ADMIN_CAPTION_TEMPLATE.format(
-        request_id=request.id,
-        user_id=user.id,
-        username=username,
-        origin="profile_edit",
-    )
-    kb = vibe_by_photo_moderate_kb(request.id, reject_text=vbp_texts.ADMIN_BTN_REJECT)
-    for idx, fid in enumerate(file_ids):
-        is_last = idx == len(file_ids) - 1
-        try:
-            if is_last:
-                await bot.send_photo(chat_id=chat_id, photo=fid, caption=caption, reply_markup=kb)
-            else:
-                await bot.send_photo(chat_id=chat_id, photo=fid)
-        except TelegramAPIError as exc:
-            logger.warning("vbp (profile): failed to send photo to staging chat: {}", exc)
 
     await message.answer(vbp_texts.SENT_TO_MOD)
     await state.clear()
