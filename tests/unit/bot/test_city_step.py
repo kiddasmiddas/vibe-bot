@@ -261,3 +261,65 @@ class TestCityMatchLogic:
         results = geo.match("мск")
         assert len(results) == 1
         assert results[0].city == "Москва"
+
+
+class TestCityFuzzyDetection:
+    """Fuzzy-совпадения помечаются и не должны приниматься молча.
+
+    Кейс из жалобы юзера: «Ташкент» (нет в словаре РФ) fuzzy-матчился в
+    «Тайшет» и сохранялся без подтверждения.
+    """
+
+    @pytest.fixture
+    def geo_with_taishet(self) -> GeoService:
+        entries = [
+            _make_entry("Тайшет", "Иркутская область", population=33_000),
+            _make_entry("Казань", "Татарстан", population=1_200_000),
+        ]
+        return GeoService(entries)
+
+    def test_tashkent_is_fuzzy_not_silent(self, geo_with_taishet: GeoService) -> None:
+        result = geo_with_taishet.match_detailed("Ташкент")
+        assert result.fuzzy is True
+        assert [e.city for e in result.entries] == ["Тайшет"]
+
+    def test_exact_match_is_not_fuzzy(self, geo_with_taishet: GeoService) -> None:
+        result = geo_with_taishet.match_detailed("Тайшет")
+        assert result.fuzzy is False
+        assert [e.city for e in result.entries] == ["Тайшет"]
+
+    def test_prefix_match_is_not_fuzzy(self, geo_with_taishet: GeoService) -> None:
+        result = geo_with_taishet.match_detailed("Каза")
+        assert result.fuzzy is False
+        assert [e.city for e in result.entries] == ["Казань"]
+
+    def test_no_match_is_not_fuzzy(self, geo_with_taishet: GeoService) -> None:
+        result = geo_with_taishet.match_detailed("Абракадабраград")
+        assert result.fuzzy is False
+        assert result.entries == []
+
+    def test_match_wrapper_returns_entries(self, geo_with_taishet: GeoService) -> None:
+        assert [e.city for e in geo_with_taishet.match("Ташкент")] == ["Тайшет"]
+
+
+class TestCityKeepButton:
+    """Кнопка «Оставить как ввёл» появляется при keep_text."""
+
+    def test_keep_button_present_when_keep_text(self) -> None:
+        from app.bot.keyboards.registration import CityKeepCb
+
+        kb = city_suggestions_kb(
+            [],
+            back_text="Назад",
+            skip_text="Не указывать город",
+            keep_text="✅ Оставить «Ташкент»",
+        )
+        all_buttons = [b for row in kb.inline_keyboard for b in row]
+        keep = [b for b in all_buttons if b.callback_data == CityKeepCb().pack()]
+        assert len(keep) == 1
+        assert keep[0].text == "✅ Оставить «Ташкент»"
+
+    def test_keep_button_absent_by_default(self) -> None:
+        kb = city_suggestions_kb([], back_text="Назад", skip_text="Не указывать город")
+        all_buttons = [b for row in kb.inline_keyboard for b in row]
+        assert all(not b.callback_data.startswith("city_keep") for b in all_buttons)

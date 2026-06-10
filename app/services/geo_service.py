@@ -79,6 +79,19 @@ class CityEntry:
     population: int
 
 
+@dataclass(frozen=True)
+class CityMatchResult:
+    """Результат подбора городов с признаком уверенности.
+
+    fuzzy=True — совпадения получены только difflib-фолбэком (опечатки,
+    похожие названия). Такие варианты НЕЛЬЗЯ принимать молча: «Ташкент»
+    fuzzy-матчится в «Тайшет» — юзер должен подтвердить кнопкой.
+    """
+
+    entries: list[CityEntry]
+    fuzzy: bool
+
+
 class GeoService:
     """Сервис подбора городов по пользовательскому вводу.
 
@@ -124,21 +137,32 @@ class GeoService:
     # ------------------------------------------------------------------
 
     def match(self, query: str) -> list[CityEntry]:
+        """Подобрать города по пользовательскому вводу (без признака fuzzy).
+
+        Обёртка над :meth:`match_detailed` для мест, где уверенность
+        совпадения не важна. В UX-потоках выбора города использовать
+        match_detailed — fuzzy-варианты нельзя сохранять без подтверждения.
+        """
+        return self.match_detailed(query).entries
+
+    def match_detailed(self, query: str) -> CityMatchResult:
         """Подобрать города по пользовательскому вводу.
 
         Стратегия (каскад, первое совпадение прерывает цепь):
-        1. Алиас → один результат по каноническому имени.
+        1. Алиас → один результат по каноническому имени (fuzzy=False).
         2. Точное совпадение + prefix/substring совмещённо: собираем все города,
            у которых нормализованное имя равно запросу ИЛИ начинается с него, или
            содержит его как подстроку.  Если найдено ≥1 — возвращаем (до
            ``_MAX_SUBSTRING_RESULTS``), отсортированных по population убыв.
            Такой подход гарантирует, что «Ростов» (точное название + префикс
            «Ростов-на-Дону») вернёт оба города, а «Казань» (уникально) — один.
-        3. Fuzzy через ``difflib.get_close_matches`` как последний фолбэк.
-        4. Пустой список.
+           fuzzy=False.
+        3. Fuzzy через ``difflib.get_close_matches`` как последний фолбэк —
+           fuzzy=True, хэндлеры обязаны спросить подтверждение.
+        4. Пустой список (fuzzy=False).
         """
         if not query or not query.strip():
-            return []
+            return CityMatchResult(entries=[], fuzzy=False)
 
         norm = self.normalize(query)
 
@@ -148,7 +172,7 @@ class GeoService:
             canon_norm = self.normalize(canonical)
             found = self._by_norm.get(canon_norm)
             if found:
-                return list(found)
+                return CityMatchResult(entries=list(found), fuzzy=False)
 
         # --- 2. Точное совпадение + prefix/substring (объединены) ---
         substring_hits: list[CityEntry] = []
@@ -157,7 +181,7 @@ class GeoService:
                 substring_hits.extend(self._by_norm[norm_name])
         if substring_hits:
             substring_hits.sort(key=lambda e: e.population, reverse=True)
-            return substring_hits[:_MAX_SUBSTRING_RESULTS]
+            return CityMatchResult(entries=substring_hits[:_MAX_SUBSTRING_RESULTS], fuzzy=False)
 
         # --- 3. Fuzzy ---
         close = difflib.get_close_matches(
@@ -168,9 +192,9 @@ class GeoService:
             for n_name in close:
                 fuzzy_hits.extend(self._by_norm[n_name])
             fuzzy_hits.sort(key=lambda e: e.population, reverse=True)
-            return fuzzy_hits
+            return CityMatchResult(entries=fuzzy_hits, fuzzy=True)
 
-        return []
+        return CityMatchResult(entries=[], fuzzy=False)
 
     # ------------------------------------------------------------------
     # Вспомогательные методы

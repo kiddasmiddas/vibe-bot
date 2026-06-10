@@ -27,6 +27,7 @@ from app.bot.keyboards.main_menu import main_menu_kb
 from app.bot.keyboards.registration import (
     CaptchaCb,
     CityCb,
+    CityKeepCb,
     GenderCb,
     RegBackCb,
     VibeAnyCb,
@@ -569,21 +570,42 @@ async def on_city_text(
     - 1 совпадение (точное или единственный вариант) → сохранить сразу.
     - 2–N совпадений → показать кнопки-подсказки.
     """
-    query = (message.text or "").strip()
+    query = (message.text or "").strip()[:80]
     if not query:
         await message.answer(texts.ASK_CITY)
         return
 
     geo = get_geo_service()
-    candidates = geo.match(query)
+    result = geo.match_detailed(query)
+    candidates = result.entries
 
     if not candidates:
-        await message.answer(
-            texts.CITY_NO_MATCH_NO_SUGGESTIONS,
+        # Города нет в словаре (например, не РФ) — предлагаем сохранить как есть.
+        await state.update_data(city_freeform=query)
+        kb = city_suggestions_kb(
+            [],
+            back_text=texts.BTN_BACK_STEP,
+            skip_text=texts.BTN_CITY_ANY,
+            keep_text=texts.BTN_CITY_KEEP_TEMPLATE.format(city=query),
         )
+        await message.answer(texts.CITY_NO_MATCH_CAN_KEEP, reply_markup=kb)
         return
 
-    # Единственное совпадение — принимаем без лишних кнопок.
+    if result.fuzzy:
+        # Похожие названия (опечатка? другой город?) — НИКОГДА не сохраняем
+        # молча: «Ташкент» fuzzy-матчится в «Тайшет». Только через кнопки,
+        # плюс вариант оставить ввод как есть.
+        await state.update_data(city_freeform=query)
+        kb = city_suggestions_kb(
+            candidates,
+            back_text=texts.BTN_BACK_STEP,
+            skip_text=texts.BTN_CITY_ANY,
+            keep_text=texts.BTN_CITY_KEEP_TEMPLATE.format(city=query),
+        )
+        await message.answer(texts.CITY_FUZZY_SUGGESTIONS, reply_markup=kb)
+        return
+
+    # Единственное уверенное совпадение — принимаем без лишних кнопок.
     if len(candidates) == 1:
         city_name = candidates[0].city
         await state.update_data(city=city_name)
@@ -634,6 +656,28 @@ async def on_city_pick(
     else:
         await state.update_data(city=None)
 
+    await _send_fandoms_screen(callback.message, state, db_session)
+    await state.set_state(RegistrationStates.fandoms)
+
+
+@router.callback_query(StateFilter(RegistrationStates.city), CityKeepCb.filter())
+async def on_city_keep(
+    callback: CallbackQuery,
+    state: FSMContext,
+    db_session: AsyncSession,
+) -> None:
+    """«Оставить как ввёл» — сохраняем город не из словаря как есть."""
+    await callback.answer()
+    if callback.message is None:
+        return
+    data = await state.get_data()
+    city_name = str(data.get("city_freeform") or "").strip()[:80]
+    if not city_name:
+        # FSM потерял ввод (рестарт бота между сообщениями) — просим заново.
+        await callback.message.answer(texts.ASK_CITY)
+        return
+    await state.update_data(city=city_name, city_freeform=None)
+    await callback.message.answer(texts.CITY_CONFIRMED.format(city=city_name))
     await _send_fandoms_screen(callback.message, state, db_session)
     await state.set_state(RegistrationStates.fandoms)
 

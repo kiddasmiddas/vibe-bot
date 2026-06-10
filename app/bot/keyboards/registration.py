@@ -43,6 +43,14 @@ class CityCb(CallbackData, prefix="city_pick"):
     city: str
 
 
+class CityKeepCb(CallbackData, prefix="city_keep"):
+    """«Оставить как ввёл» — сохранить город, которого нет в словаре.
+
+    Сам текст ввода в callback_data не влезает (лимит 64 байта), поэтому
+    хэндлер читает его из FSM-ключа ``city_freeform``.
+    """
+
+
 class VibePickCb(CallbackData, prefix="vibe_pick"):
     """Кнопка с номером вайба в новом пикере.
 
@@ -131,16 +139,22 @@ def city_suggestions_kb(
     *,
     back_text: str,
     skip_text: str,
+    keep_text: str | None = None,
 ) -> InlineKeyboardMarkup:
     """Клавиатура с кнопками-подсказками городов + «Назад» и «Не указывать».
 
     Ограничивает кол-во кнопок до ``_CITY_MAX_BUTTONS``, чтобы клавиатура
     оставалась читаемой.  Кнопки идут по 1 на ряд для удобства тапа.
+
+    ``keep_text`` — добавляет кнопку «Оставить как ввёл» (для fuzzy-вариантов
+    и городов не из словаря); сам ввод хэндлер берёт из FSM.
     """
     builder = InlineKeyboardBuilder()
     for entry in candidates[:_CITY_MAX_BUTTONS]:
         label = entry.city if not entry.region else f"{entry.city} ({entry.region})"
         builder.button(text=label, callback_data=CityCb(city=entry.city))
+    if keep_text:
+        builder.button(text=keep_text, callback_data=CityKeepCb())
     builder.button(text=skip_text, callback_data=CityCb(city=""))
     builder.button(text=back_text, callback_data=RegBackCb(step="city_back"))
     builder.adjust(1)

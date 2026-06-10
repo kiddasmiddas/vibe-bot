@@ -28,6 +28,7 @@ from app.bot.keyboards.profile_edit import (
 )
 from app.bot.keyboards.registration import (
     CityCb,
+    CityKeepCb,
     GenderCb,
     RegBackCb,
     VibeAnyCb,
@@ -705,16 +706,37 @@ async def on_edit_city_text(
     Повторяет логику on_city_text из registration.py, но по завершении
     сохраняет в БД и показывает обновлённую карточку.
     """
-    query = (message.text or "").strip()
+    query = (message.text or "").strip()[:80]
     if not query:
         await message.answer(reg_texts.ASK_CITY)
         return
 
     geo = get_geo_service()
-    candidates = geo.match(query)
+    result = geo.match_detailed(query)
+    candidates = result.entries
 
     if not candidates:
-        await message.answer(reg_texts.CITY_NO_MATCH_NO_SUGGESTIONS)
+        # Города нет в словаре — предлагаем сохранить как есть (см. registration).
+        await state.update_data(city_freeform=query)
+        kb = city_suggestions_kb(
+            [],
+            back_text=reg_texts.BTN_BACK_STEP,
+            skip_text=reg_texts.BTN_CITY_ANY,
+            keep_text=reg_texts.BTN_CITY_KEEP_TEMPLATE.format(city=query),
+        )
+        await message.answer(reg_texts.CITY_NO_MATCH_CAN_KEEP, reply_markup=kb)
+        return
+
+    if result.fuzzy:
+        # Fuzzy-варианты не сохраняем молча («Ташкент» → «Тайшет»).
+        await state.update_data(city_freeform=query)
+        kb = city_suggestions_kb(
+            candidates,
+            back_text=reg_texts.BTN_BACK_STEP,
+            skip_text=reg_texts.BTN_CITY_ANY,
+            keep_text=reg_texts.BTN_CITY_KEEP_TEMPLATE.format(city=query),
+        )
+        await message.answer(reg_texts.CITY_FUZZY_SUGGESTIONS, reply_markup=kb)
         return
 
     if len(candidates) == 1:
@@ -749,6 +771,26 @@ async def on_edit_city_pick(
     await callback.answer()
     city_name: str | None = callback_data.city or None
     if callback.message is None:
+        return
+    await _save_city_and_render(callback.message, state, db_session, bot, user.id, city_name)
+
+
+@router.callback_query(ProfileEditStates.edit_city, CityKeepCb.filter())
+async def on_edit_city_keep(
+    callback: CallbackQuery,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+    bot: Bot,
+) -> None:
+    """«Оставить как ввёл» при редактировании города."""
+    await callback.answer()
+    if callback.message is None:
+        return
+    data = await state.get_data()
+    city_name = str(data.get("city_freeform") or "").strip()[:80]
+    if not city_name:
+        await callback.message.answer(reg_texts.ASK_CITY)
         return
     await _save_city_and_render(callback.message, state, db_session, bot, user.id, city_name)
 
