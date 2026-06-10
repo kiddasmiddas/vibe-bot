@@ -310,7 +310,15 @@ class PaymentService:
         # из payload — payload пришёл от пользователя и теоретически мог быть подделан.
         tariff = _parse_tariff_from_purpose(payment.purpose)
         _price_rub, duration_days = await self._get_price_and_duration(tariff)
-        expires_at = now + timedelta(days=duration_days)
+        # Продлеваем от текущей даты окончания, если Premium ещё активен (в т.ч.
+        # выданный вручную годовой) — иначе оплата короткого тарифа укоротила бы
+        # уже оплаченный/выданный срок. Иначе считаем от now.
+        base = (
+            user.premium_until
+            if user.premium_until is not None and user.premium_until > now
+            else now
+        )
+        expires_at = base + timedelta(days=duration_days)
 
         await self._premium_repo.create_subscription(
             user_id=user.id,

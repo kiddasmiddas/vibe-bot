@@ -30,10 +30,21 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Анкеты без вайба не дадут вернуть NOT NULL — подчищаем их явно.
-    # Это валидно только для отката на стенде; данных мы при этом не теряем,
-    # кроме анкет, ожидающих модератора (они и так не участвуют в матчинге).
-    op.execute("DELETE FROM profiles WHERE own_vibe_id IS NULL")
+    # ВНИМАНИЕ: вернуть NOT NULL нельзя, пока есть анкеты с own_vibe_id IS NULL
+    # (ждут вайб от модератора). НЕ удаляем их молча — это живые анкеты
+    # оплативших Premium пользователей. Вместо тихого DELETE падаем с понятной
+    # инструкцией: оператор должен сначала разрулить такие анкеты вручную
+    # (назначить вайб или снять с бэкапом), затем повторить downgrade.
+    bind = op.get_bind()
+    count = bind.execute(
+        sa.text("SELECT count(*) FROM profiles WHERE own_vibe_id IS NULL")
+    ).scalar()
+    if count:
+        raise RuntimeError(
+            f"Downgrade aborted: {count} profile(s) have own_vibe_id IS NULL "
+            "(awaiting moderator vibe). Assign vibes or remove these rows manually "
+            "(with a backup) before downgrading — refusing to delete user profiles."
+        )
     op.alter_column(
         "profiles",
         "own_vibe_id",

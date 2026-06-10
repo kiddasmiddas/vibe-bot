@@ -576,6 +576,14 @@ async def on_city_text(
         await message.answer(texts.ASK_CITY)
         return
 
+    # Свободный ввод города может быть сохранён как есть (кнопка «Оставить»),
+    # поэтому модерируем так же, как nickname/bio: ссылки и стоп-слова запрещены.
+    moderation = _moderation_service(db_session)
+    mod_result = await moderation.check_text(query, target_kind="profile_city")
+    if not mod_result.approved:
+        await message.answer(await _moderation_error_text(mod_result.reason))
+        return
+
     geo = get_geo_service()
     result = geo.match_detailed(query)
     candidates = result.entries
@@ -1084,6 +1092,13 @@ async def cb_vibe_by_photo_start(
     """Запуск flow «Вайб по фото» из пикера own_vibe (Premium-фича)."""
     if not has_premium_access(user):
         await callback.answer(vbp_texts.NOT_PREMIUM, show_alert=True)
+        return
+
+    # Дубликат-гард: одна активная заявка на юзера. Иначе можно нажать
+    # «Вайб по фото» несколько раз и наспамить очередь + уведомления модераторам.
+    latest = await VibeByPhotoRepository(db_session).get_latest_for_user(user.id)
+    if latest is not None and latest.status == "pending":
+        await callback.answer(vbp_texts.ALREADY_PENDING, show_alert=True)
         return
 
     await callback.answer()

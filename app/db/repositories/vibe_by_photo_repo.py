@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import and_, delete, or_, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.vibe_by_photo import VibeByPhotoRequest
@@ -193,6 +193,9 @@ class VibeByPhotoRepository:
                 status="completed",
                 assigned_vibe_id=vibe_id,
                 assigned_by_admin_id=admin_user_id,
+                # onupdate=func.now() в модели не срабатывает на bulk UPDATE —
+                # выставляем updated_at явно, иначе остаётся равным created_at.
+                updated_at=func.now(),
             )
         )
         result = await self._session.execute(stmt)
@@ -223,6 +226,7 @@ class VibeByPhotoRepository:
             .values(
                 status="rejected",
                 assigned_by_admin_id=admin_user_id,
+                updated_at=func.now(),
             )
         )
         result = await self._session.execute(stmt)

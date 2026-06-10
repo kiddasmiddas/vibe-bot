@@ -493,27 +493,31 @@ async def cb_vbp_queue_list(
     else:
         body_lines.append(texts.ADMIN_QUEUE_FOUND_TEMPLATE.format(count=len(pending)))
         body_lines.append("")
+        from html import escape as _html_escape
+
         for req in pending:
             target_user = await user_repo.get_by_id(req.user_id)
-            username = (
+            raw_username = (
                 f"@{target_user.username}"
                 if target_user is not None and target_user.username
                 else f"id={req.user_id}"
             )
             photos_count = len(VibeByPhotoRepository.get_photo_file_ids(req))
+            # Текст списка уходит с parse_mode=HTML — экранируем username.
             body_lines.append(
                 texts.ADMIN_QUEUE_ITEM_TEMPLATE.format(
                     request_id=req.id,
-                    username=username,
+                    username=_html_escape(raw_username),
                     photos_count=photos_count,
                     origin=req.origin,
                 )
             )
+            # Текст кнопки HTML не парсится — сырой username.
             items.append(
                 (
                     req.id,
                     texts.ADMIN_QUEUE_BTN_OPEN_TEMPLATE.format(
-                        request_id=req.id, username=username
+                        request_id=req.id, username=raw_username
                     ),
                 )
             )

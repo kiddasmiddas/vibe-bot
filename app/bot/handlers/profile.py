@@ -756,6 +756,13 @@ async def on_edit_city_text(
         await message.answer(reg_texts.ASK_CITY)
         return
 
+    # Свободный ввод может быть сохранён как есть — модерируем как nickname/bio.
+    moderation = _moderation_service(db_session)
+    mod_result = await moderation.check_text(query, target_kind="profile_city", user_id=user.id)
+    if not mod_result.approved:
+        await message.answer(_moderation_error_text(mod_result.reason))
+        return
+
     geo = get_geo_service()
     result = geo.match_detailed(query)
     candidates = result.entries
@@ -1345,6 +1352,11 @@ async def cb_edit_vibe_by_photo_start(
     """Запуск flow «Вайб по фото» из режима редактирования (Premium)."""
     if not has_premium_access(user):
         await callback.answer(vbp_texts.NOT_PREMIUM, show_alert=True)
+        return
+    # Дубликат-гард: одна активная заявка на юзера (как в on_vibe_by_photo_menu).
+    latest = await VibeByPhotoRepository(db_session).get_latest_for_user(user.id)
+    if latest is not None and latest.status == "pending":
+        await callback.answer(vbp_texts.ALREADY_PENDING, show_alert=True)
         return
     await callback.answer()
     await state.update_data(

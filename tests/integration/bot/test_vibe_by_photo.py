@@ -914,3 +914,62 @@ async def test_menu_vbp_no_profile_refused(db_session, storage) -> None:
     assert await state.get_state() is None
     answered = [c.args[0] for c in msg.answer.await_args_list if c.args]
     assert vbp_texts.NEED_PROFILE in answered
+
+
+# --------------------------------------------------------------------------- #
+# Аудит-фиксы: дубликат-гард VBP, модерация города.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_registration_vbp_start_blocks_duplicate_pending(db_session, storage) -> None:
+    """cb_vibe_by_photo_start (регистрация) не создаёт 2-ю заявку при pending."""
+    from app.bot.handlers.registration import cb_vibe_by_photo_start
+
+    user = await _make_user(db_session, telegram_id=70400, is_premium=True)
+    repo = VibeByPhotoRepository(db_session)
+    await repo.create_request(user_id=user.id, origin="registration", photo_file_ids=["x"])
+
+    state = _fsm(storage, user_id=user.telegram_id)
+    await state.set_state(RegistrationStates.own_vibe)
+    cb = _mock_callback(user_id=user.telegram_id)
+
+    await cb_vibe_by_photo_start(
+        cb, VibeByPhotoStartCb(origin="registration"), state, user, db_session
+    )
+
+    # Остались в own_vibe, alert про существующую заявку, 2-й заявки нет.
+    assert await state.get_state() == RegistrationStates.own_vibe.state
+    cb.answer.assert_awaited_with(vbp_texts.ALREADY_PENDING, show_alert=True)
+    rows = (
+        (
+            await db_session.execute(
+                select(VibeByPhotoRequest).where(VibeByPhotoRequest.user_id == user.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_city_text_blocks_link(db_session, storage) -> None:
+    """Ссылка во вводе города отклоняется модерацией (как nickname/bio)."""
+    from app.bot.handlers.registration import on_city_text
+    from app.bot.states.registration import RegistrationStates as RS
+
+    user = await _make_user(db_session, telegram_id=70401)
+    state = _fsm(storage, user_id=user.telegram_id)
+    await state.set_state(RS.city)
+
+    msg = _mock_message()
+    msg.text = "t.me/spam Москва"
+
+    await on_city_text(msg, state, db_session)
+
+    # Не ушли с шага города, город не сохранён.
+    assert await state.get_state() == RS.city.state
+    data = await state.get_data()
+    assert data.get("city") is None
+    assert data.get("city_freeform") is None

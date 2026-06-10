@@ -149,7 +149,7 @@ class CandidateResult:
 
 
 def _vibe_match_points(
-    my_own_vibe_id: int,
+    my_own_vibe_id: int | None,
     my_desired_vibe_ids: frozenset[int],
     their_own_vibe_id: int,
     their_desired_vibe_ids: frozenset[int],

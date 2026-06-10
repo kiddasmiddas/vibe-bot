@@ -190,6 +190,53 @@ class TestRenderProfileNullCity:
         assert "Казань" in rendered.text
 
 
+class TestRenderProfileHtmlEscape:
+    """Карточка уходит с parse_mode=HTML — пользовательские поля экранируются."""
+
+    def test_html_in_city_nickname_bio_escaped(self) -> None:
+        profile = _profile(city='<a href="https://spam.example">Москва</a>')
+        profile.nickname = "Bo<b>ss</b>"
+        profile.bio = "hi & <script>alert(1)</script>"
+        gender = _dict_entity(1, "Девушка")
+        own_vibe = _dict_entity(2, "Аниместетик")
+        own_vibe.number = 2
+
+        rendered = render_profile_card(
+            profile,  # type: ignore[arg-type]
+            gender=gender,  # type: ignore[arg-type]
+            own_vibe=own_vibe,  # type: ignore[arg-type]
+            desired_vibes=[],
+            fandoms=[],
+            desired_fandoms=[],
+            interests=[],
+            looking_for_genders=[],
+        )
+        # Сырые теги/ссылки не должны попасть в текст — только экранированные.
+        assert "<a href" not in rendered.text
+        assert "<b>" not in rendered.text
+        assert "<script>" not in rendered.text
+        assert "&lt;" in rendered.text  # что-то заэкранировалось
+
+    def test_html_in_dictionary_titles_escaped(self) -> None:
+        profile = _profile(city="Казань")
+        gender = _dict_entity(1, "Дев<b>ушка</b>")
+        own_vibe = _dict_entity(2, "Аниместетик")
+        own_vibe.number = 2
+
+        rendered = render_profile_card(
+            profile,  # type: ignore[arg-type]
+            gender=gender,  # type: ignore[arg-type]
+            own_vibe=own_vibe,  # type: ignore[arg-type]
+            desired_vibes=[],
+            fandoms=[_dict_entity(3, "Ан<i>име</i>")],
+            desired_fandoms=[],
+            interests=[],
+            looking_for_genders=[],
+        )
+        assert "<b>" not in rendered.text
+        assert "<i>" not in rendered.text
+
+
 class TestRenderProfileEmptyDesiredVibes:
     def test_empty_desired_vibes_renders_lyuboi(self) -> None:
         """desired_vibes=[] → карточка выводит «любой» без краша."""

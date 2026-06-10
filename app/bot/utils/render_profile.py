@@ -13,6 +13,7 @@ TelegramAPIError при отправке (протухший file_id и т.п.) 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from html import escape as _html_escape
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
@@ -60,7 +61,10 @@ def truncate_caption(text: str, limit: int = CAPTION_LIMIT) -> str:
 def _format_list(items: list[str]) -> str:
     if not items:
         return texts.RENDER_EMPTY_VALUE
-    return ", ".join(items)
+    # Бот рендерит карточку с parse_mode=HTML (DefaultBotProperties), поэтому
+    # любые строки из БД (в т.ч. справочники) экранируем, чтобы '<'/'&' не ломали
+    # разметку и не позволяли инъекцию.
+    return ", ".join(_html_escape(i) for i in items)
 
 
 def render_profile_card(
@@ -83,8 +87,11 @@ def render_profile_card(
     `desired_vibes=[]` означает «ищу любой вайб» — валидное состояние, а не
     отсутствие данных; в карточке выводится как «любой».
     """
-    # Заголовок: nickname, возраст.
-    header = f"{profile.nickname}, {profile.age}"
+    # Заголовок: nickname, возраст. Карточка уходит с parse_mode=HTML, поэтому
+    # ВСЕ пользовательские строки (nickname, city, bio) экранируем — иначе
+    # '<', '>', '&' и теги (например, ссылка в свободно введённом городе)
+    # отрендерятся/сломают разметку у всех, кто видит анкету.
+    header = f"{_html_escape(profile.nickname)}, {profile.age}"
 
     # own_vibe=None — вайб ещё подбирает модератор («Вайб по фото»).
     if own_vibe is not None:
@@ -101,9 +108,10 @@ def render_profile_card(
         desired_vibe_str = texts.RENDER_VIBE_ANY
 
     lines: list[str] = [header]
-    lines.append(f"{texts.RENDER_FIELD_GENDER}: {gender.title}")
-    lines.append(f"{texts.RENDER_FIELD_CITY}: {profile.city or texts.RENDER_EMPTY_VALUE}")
-    lines.append(f"{texts.RENDER_FIELD_BIO}: {profile.bio}")
+    lines.append(f"{texts.RENDER_FIELD_GENDER}: {_html_escape(gender.title)}")
+    city_str = _html_escape(profile.city) if profile.city else texts.RENDER_EMPTY_VALUE
+    lines.append(f"{texts.RENDER_FIELD_CITY}: {city_str}")
+    lines.append(f"{texts.RENDER_FIELD_BIO}: {_html_escape(profile.bio)}")
     lines.append(f"{texts.RENDER_FIELD_FANDOMS}: {_format_list([f.title for f in fandoms])}")
     lines.append(
         f"{texts.RENDER_FIELD_DESIRED_FANDOMS}: {_format_list([f.title for f in desired_fandoms])}"

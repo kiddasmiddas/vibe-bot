@@ -735,7 +735,9 @@ async def _render_previous_candidate(
     await matching_repo.remove_viewed(viewer_id=user.id, target_id=previous_user_id)
 
     profile = await ProfileRepository(db_session).get_by_user_id(previous_user_id)
-    if profile is None or not profile.is_active or profile.is_hidden:
+    # is_pending_review тоже исключаем: такой профиль не выдаётся в обычном
+    # поиске (find_candidates фильтрует), и undo не должен его «протащить».
+    if profile is None or not profile.is_active or profile.is_hidden or profile.is_pending_review:
         await callback.answer(texts.UNDO_CANDIDATE_UNAVAILABLE, show_alert=True)
         # Сбрасываем стэк, чтобы повторный undo не пытался снова.
         await state.update_data(**{FSM_KEY_LAST_SHOWN: None})

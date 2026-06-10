@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,8 +62,23 @@ class SettingsRepository:
 
     async def get_int(self, key: str) -> int | None:
         raw = await self.get(key)
-        return None if raw is None or raw == "" else int(raw)
+        if raw is None or raw == "":
+            return None
+        # Значение могло быть сохранено руками через /admin с опечаткой
+        # ("200 ", "abc"). Не роняем вызывающий код (в т.ч. начисление Premium
+        # после оплаты) — трактуем кривое значение как «нет значения».
+        try:
+            return int(raw.strip())
+        except (ValueError, AttributeError):
+            logger.warning("settings.get_int: non-int value for key {!r}: {!r}", key, raw)
+            return None
 
     async def get_float(self, key: str) -> float | None:
         raw = await self.get(key)
-        return None if raw is None or raw == "" else float(raw)
+        if raw is None or raw == "":
+            return None
+        try:
+            return float(raw.strip())
+        except (ValueError, AttributeError):
+            logger.warning("settings.get_float: non-float value for key {!r}: {!r}", key, raw)
+            return None
