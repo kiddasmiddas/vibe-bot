@@ -232,6 +232,49 @@ async def on_my_profile(
         await message.answer(texts.VIBES_NEED_REVIEW_HINT)
 
 
+@router.message(F.text == common_texts.BTN_VIBE_BY_PHOTO_MENU)
+async def on_vibe_by_photo_menu(
+    message: Message,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+) -> None:
+    """Кнопка «🖼 Вайб по фото» в главном меню (Premium).
+
+    Позволяет в любой момент попросить модератора переподобрать вайб.
+    Переиспользует FSM-поток profile_edit: фото → /done →
+    dispatch_vbp_request(origin='profile_edit') → модератор назначает.
+    """
+    await state.clear()
+
+    profile = await ProfileRepository(db_session).get_by_user_id(user.id)
+    if profile is None or not profile.is_completed:
+        await message.answer(
+            vbp_texts.NEED_PROFILE,
+            reply_markup=main_menu_kb(is_registered=False),
+        )
+        return
+
+    if not has_premium_access(user):
+        await message.answer(vbp_texts.NOT_PREMIUM)
+        return
+
+    # Дубликат-гард: одна активная заявка на юзера.
+    latest = await VibeByPhotoRepository(db_session).get_latest_for_user(user.id)
+    if latest is not None and latest.status == "pending":
+        await message.answer(vbp_texts.ALREADY_PENDING)
+        return
+
+    await state.update_data(vbp_photo_file_ids=[], vbp_origin="profile_edit")
+    await state.set_state(ProfileEditStates.vibe_by_photo_upload)
+    kb = vibe_by_photo_upload_kb(
+        done_text=vbp_texts.BTN_VIBE_BY_PHOTO_DONE,
+        cancel_text=vbp_texts.BTN_VIBE_BY_PHOTO_CANCEL,
+        can_finish=False,
+    )
+    await message.answer(vbp_texts.ASK_PHOTOS, reply_markup=kb)
+
+
 # ----------------------------- dispatcher: ProfileEditCb -----------------------------
 
 

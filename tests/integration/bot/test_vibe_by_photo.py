@@ -797,3 +797,120 @@ async def test_finalize_registration_picks_up_completed_vbp(db_session, storage)
     profile = await ProfileRepository(db_session).get_by_user_id(user.id)
     assert profile is not None
     assert profile.own_vibe_id == target_vibe.id
+
+
+# --------------------------------------------------------------------------- #
+# Кнопка «Вайб по фото» в главном меню.
+# --------------------------------------------------------------------------- #
+
+
+def test_main_menu_has_vibe_by_photo_button() -> None:
+    """Зарегистрированным кнопка видна, незарегистрированным — нет."""
+    from app.bot.keyboards.main_menu import main_menu_kb
+    from app.texts import common as common_texts
+
+    kb = main_menu_kb(is_registered=True)
+    labels = [b.text for row in kb.keyboard for b in row]
+    assert common_texts.BTN_VIBE_BY_PHOTO_MENU in labels
+
+    kb_unreg = main_menu_kb(is_registered=False)
+    labels_unreg = [b.text for row in kb_unreg.keyboard for b in row]
+    assert common_texts.BTN_VIBE_BY_PHOTO_MENU not in labels_unreg
+
+
+async def _make_completed_profile(db_session, user, *, vibe_number: int = 1):
+    vibe = (await db_session.execute(select(Vibe).where(Vibe.number == vibe_number))).scalar_one()
+    repo = ProfileRepository(db_session)
+    profile = await repo.create(
+        user_id=user.id,
+        nickname="menuuser",
+        age=20,
+        gender_id=1,
+        looking_for_age_min=18,
+        looking_for_age_max=30,
+        bio="hi",
+        own_vibe_id=vibe.id,
+        main_media_type="photo",
+        main_media_file_id="placeholder",
+    )
+    await repo.mark_completed(profile.id)
+    await db_session.flush()
+    return profile
+
+
+@pytest.mark.asyncio
+async def test_menu_vbp_premium_enters_upload_state(db_session, storage) -> None:
+    """Premium с анкетой → FSM в vibe_by_photo_upload, origin=profile_edit."""
+    from app.bot.handlers.profile import on_vibe_by_photo_menu
+
+    user = await _make_user(db_session, telegram_id=70300, is_premium=True)
+    await _make_completed_profile(db_session, user)
+
+    state = _fsm(storage, user_id=user.telegram_id)
+    msg = _mock_message()
+
+    await on_vibe_by_photo_menu(msg, state, user, db_session)
+
+    assert await state.get_state() == ProfileEditStates.vibe_by_photo_upload
+    data = await state.get_data()
+    assert data.get("vbp_origin") == "profile_edit"
+    ask_calls = [
+        c for c in msg.answer.await_args_list if c.args and c.args[0] == vbp_texts.ASK_PHOTOS
+    ]
+    assert len(ask_calls) == 1
+    assert ask_calls[0].kwargs.get("reply_markup") is not None
+
+
+@pytest.mark.asyncio
+async def test_menu_vbp_not_premium_refused(db_session, storage) -> None:
+    """Без Premium — отказ NOT_PREMIUM, state не меняется."""
+    from app.bot.handlers.profile import on_vibe_by_photo_menu
+
+    user = await _make_user(db_session, telegram_id=70301, is_premium=False)
+    await _make_completed_profile(db_session, user)
+
+    state = _fsm(storage, user_id=user.telegram_id)
+    msg = _mock_message()
+
+    await on_vibe_by_photo_menu(msg, state, user, db_session)
+
+    assert await state.get_state() is None
+    msg.answer.assert_any_await(vbp_texts.NOT_PREMIUM)
+
+
+@pytest.mark.asyncio
+async def test_menu_vbp_pending_refused(db_session, storage) -> None:
+    """Уже есть pending-заявка → ALREADY_PENDING, второй не создаётся."""
+    from app.bot.handlers.profile import on_vibe_by_photo_menu
+
+    user = await _make_user(db_session, telegram_id=70302, is_premium=True)
+    profile = await _make_completed_profile(db_session, user)
+    repo = VibeByPhotoRepository(db_session)
+    await repo.create_request(
+        user_id=user.id, origin="profile_edit", photo_file_ids=["x"], profile_id=profile.id
+    )
+
+    state = _fsm(storage, user_id=user.telegram_id)
+    msg = _mock_message()
+
+    await on_vibe_by_photo_menu(msg, state, user, db_session)
+
+    assert await state.get_state() is None
+    msg.answer.assert_any_await(vbp_texts.ALREADY_PENDING)
+
+
+@pytest.mark.asyncio
+async def test_menu_vbp_no_profile_refused(db_session, storage) -> None:
+    """Без анкеты — NEED_PROFILE."""
+    from app.bot.handlers.profile import on_vibe_by_photo_menu
+
+    user = await _make_user(db_session, telegram_id=70303, is_premium=True)
+
+    state = _fsm(storage, user_id=user.telegram_id)
+    msg = _mock_message()
+
+    await on_vibe_by_photo_menu(msg, state, user, db_session)
+
+    assert await state.get_state() is None
+    answered = [c.args[0] for c in msg.answer.await_args_list if c.args]
+    assert vbp_texts.NEED_PROFILE in answered

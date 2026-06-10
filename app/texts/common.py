@@ -14,6 +14,7 @@ BTN_SEARCH = "Искать своих"
 BTN_LIKES_MATCHES = "Мои лайки / мэтчи"
 BTN_MINIAPP = "🎨 Аллея и Лента"
 BTN_PREMIUM = "💎 Купить Premium"
+BTN_VIBE_BY_PHOTO_MENU = "🖼 Вайб по фото"
 BTN_SUPPORT = "Поддержка / правила"
 
 # Заглушки для разделов, которые будут реализованы позже.

@@ -9,9 +9,12 @@ from app.texts import common as texts
 def main_menu_kb(*, is_registered: bool) -> ReplyKeyboardMarkup:
     """Главное reply-меню бота.
 
-    Для зарегистрированного (профиль есть и `is_completed=True`) — 6 кнопок
-    в две колонки. Для остальных — одна кнопка «Создать анкету», которая ведёт
+    Для зарегистрированного (профиль есть и `is_completed=True`) — 7 кнопок.
+    Для остальных — одна кнопка «Создать анкету», которая ведёт
     в FSM-регистрации (реализация — этап 3).
+
+    «🖼 Вайб по фото» видна всем зарегистрированным; Premium-гейт — на тапе
+    (не-премиум получает NOT_PREMIUM — заодно и апсейл фичи).
     """
     builder = ReplyKeyboardBuilder()
 
@@ -25,6 +28,7 @@ def main_menu_kb(*, is_registered: bool) -> ReplyKeyboardMarkup:
     builder.button(text=texts.BTN_LIKES_MATCHES)
     builder.button(text=texts.BTN_MINIAPP)
     builder.button(text=texts.BTN_PREMIUM)
+    builder.button(text=texts.BTN_VIBE_BY_PHOTO_MENU)
     builder.button(text=texts.BTN_SUPPORT)
-    builder.adjust(2, 2, 2)
+    builder.adjust(2, 2, 2, 1)
     return builder.as_markup(resize_keyboard=True)

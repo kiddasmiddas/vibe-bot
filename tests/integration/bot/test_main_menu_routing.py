@@ -67,6 +67,7 @@ async def test_cmd_start_registered_user_sees_full_menu(db_session) -> None:
         texts.BTN_LIKES_MATCHES,
         texts.BTN_MINIAPP,
         texts.BTN_PREMIUM,
+        texts.BTN_VIBE_BY_PHOTO_MENU,
         texts.BTN_SUPPORT,
     ]
 
