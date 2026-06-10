@@ -642,3 +642,158 @@ async def test_cb_edit_vibe_by_photo_done_creates_request(db_session, storage) -
     assert rows[0].origin == "profile_edit"
     assert rows[0].status == "pending"
     assert await state.get_state() is None
+
+
+# --------------------------------------------------------------------------- #
+# Продолжение регистрации после отправки фото + гард поиска + авто-снятие.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_registration_continues_after_vbp_submit(db_session, storage) -> None:
+    """После /done в регистрации FSM едет дальше — на выбор желаемого вайба,
+    own_vibe_id в данных = None (ждёт модератора), регистрация не блокируется.
+    """
+    user = await _make_user(db_session, telegram_id=70200, username="carol", is_premium=True)
+    state = _fsm(storage, user_id=user.telegram_id)
+    await state.set_state(RegistrationStates.vibe_by_photo_upload)
+    await state.update_data(vbp_photo_file_ids=["ph1"], vbp_origin="registration")
+
+    cb = _mock_callback(user_id=user.telegram_id)
+    bot = cb.bot
+
+    await cb_vibe_by_photo_done(cb, state, user, db_session, bot)
+
+    assert await state.get_state() == RegistrationStates.desired_vibe
+    data = await state.get_data()
+    assert data.get("own_vibe_id") is None
+    assert data.get("vbp_photo_file_ids") == []
+    # Юзеру ушло сообщение «продолжаем» + пикер desired-вайба.
+    cb.message.answer.assert_any_await(vbp_texts.SENT_TO_MOD_CONTINUE)
+
+
+@pytest.mark.asyncio
+async def test_manual_vibe_pick_removes_pending_request(db_session, storage) -> None:
+    """Юзер выбрал вайб вручную в profile_edit → pending-заявка удаляется из очереди."""
+    from app.bot.handlers.profile import on_edit_vibe_pick_own
+    from app.bot.keyboards.registration import VibePickCb
+
+    user = await _make_user(db_session, telegram_id=70201, is_premium=True)
+    profile = await ProfileRepository(db_session).create(
+        user_id=user.id,
+        nickname="dave",
+        age=22,
+        gender_id=1,
+        looking_for_age_min=18,
+        looking_for_age_max=30,
+        bio="hey",
+        own_vibe_id=None,
+        main_media_type="photo",
+        main_media_file_id="placeholder",
+    )
+    await db_session.flush()
+
+    repo = VibeByPhotoRepository(db_session)
+    request = await repo.create_request(
+        user_id=user.id,
+        origin="registration",
+        photo_file_ids=["x"],
+        profile_id=profile.id,
+    )
+    await db_session.flush()
+
+    state = _fsm(storage, user_id=user.telegram_id)
+    await state.set_state(ProfileEditStates.edit_own_vibe)
+
+    cb = _mock_callback(user_id=user.telegram_id)
+    cb_data = VibePickCb(role="own", page=0, number=7)
+
+    await on_edit_vibe_pick_own(cb, cb_data, state, user, db_session, cb.bot)
+
+    # Профиль получил вайб, pending-заявка исчезла.
+    fresh = await ProfileRepository(db_session).get_by_id(profile.id)
+    assert fresh is not None
+    assert fresh.own_vibe_id is not None
+    assert await repo.get_by_id(request.id) is None
+
+    # Очередь модератора пуста.
+    assert await repo.list_pending() == []
+
+
+@pytest.mark.asyncio
+async def test_search_guard_when_vibe_pending(db_session, storage) -> None:
+    """Профиль без вайба + попытка поиска → гард с кнопками ждать/выбрать."""
+    from app.bot.handlers.matching import on_search
+    from app.texts import matching as matching_texts
+
+    user = await _make_user(db_session, telegram_id=70202, is_premium=True)
+    profile = await ProfileRepository(db_session).create(
+        user_id=user.id,
+        nickname="erin",
+        age=25,
+        gender_id=1,
+        looking_for_age_min=18,
+        looking_for_age_max=30,
+        bio="yo",
+        own_vibe_id=None,
+        main_media_type="photo",
+        main_media_file_id="placeholder",
+    )
+    await ProfileRepository(db_session).mark_completed(profile.id)
+    await db_session.flush()
+
+    state = _fsm(storage, user_id=user.telegram_id)
+    msg = _mock_message()
+
+    await on_search(msg, state, user, db_session, MagicMock())
+
+    guard_calls = [
+        c
+        for c in msg.answer.await_args_list
+        if c.args and c.args[0] == matching_texts.VIBE_PENDING_GUARD
+    ]
+    assert len(guard_calls) == 1
+    assert guard_calls[0].kwargs.get("reply_markup") is not None
+
+
+@pytest.mark.asyncio
+async def test_finalize_registration_picks_up_completed_vbp(db_session, storage) -> None:
+    """Модератор назначил вайб, пока юзер дозаполнял анкету (профиля ещё не было)
+    → финализация подхватывает assigned_vibe_id из completed-запроса.
+    """
+    from app.bot.handlers.registration import _finalize_registration
+
+    user = await _make_user(db_session, telegram_id=70203, is_premium=True)
+    target_vibe = (await db_session.execute(select(Vibe).where(Vibe.number == 9))).scalar_one()
+
+    repo = VibeByPhotoRepository(db_session)
+    request = await repo.create_request(
+        user_id=user.id, origin="registration", photo_file_ids=["z"]
+    )
+    moderator = await _make_user(db_session, telegram_id=70204, is_moderator=True)
+    await repo.set_assigned(request.id, vibe_id=target_vibe.id, admin_user_id=moderator.id)
+
+    state = _fsm(storage, user_id=user.telegram_id)
+    await state.update_data(
+        nickname="fred",
+        age=21,
+        gender_id=1,
+        la_min=18,
+        la_max=30,
+        bio="hello",
+        own_vibe_id=None,
+        main_media_type="photo",
+        main_media_file_id="placeholder",
+    )
+
+    msg = _mock_message()
+    bot = MagicMock()
+    bot.send_photo = AsyncMock()
+    bot.send_video = AsyncMock()
+    bot.send_animation = AsyncMock()
+
+    await _finalize_registration(msg, state, user, db_session, bot)
+
+    profile = await ProfileRepository(db_session).get_by_user_id(user.id)
+    assert profile is not None
+    assert profile.own_vibe_id == target_vibe.id

@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.vibe_by_photo import VibeByPhotoRequest
@@ -53,6 +53,36 @@ class VibeByPhotoRepository:
 
     async def get_by_id(self, request_id: int) -> VibeByPhotoRequest | None:
         return await self._session.get(VibeByPhotoRequest, request_id)
+
+    async def get_latest_for_user(self, user_id: int) -> VibeByPhotoRequest | None:
+        """Самый свежий запрос пользователя (любой статус).
+
+        Нужен на финализации регистрации: если модератор успел назначить вайб
+        (status='completed') пока юзер дозаполнял анкету, забираем
+        assigned_vibe_id оттуда.
+        """
+        stmt = (
+            select(VibeByPhotoRequest)
+            .where(VibeByPhotoRequest.user_id == user_id)
+            .order_by(VibeByPhotoRequest.created_at.desc(), VibeByPhotoRequest.id.desc())
+            .limit(1)
+        )
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
+    async def delete_pending_for_user(self, user_id: int) -> int:
+        """Удаляет все pending-запросы пользователя, возвращает число удалённых.
+
+        Вызывается, когда вайб у пользователя появился другим путём (выбрал
+        сам в пикере) — заявка исчезает из очереди модераторов. История
+        completed/rejected не трогается.
+        """
+        stmt = delete(VibeByPhotoRequest).where(
+            VibeByPhotoRequest.user_id == user_id,
+            VibeByPhotoRequest.status == "pending",
+        )
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        return result.rowcount or 0
 
     async def list_pending(self, *, limit: int = 50) -> list[VibeByPhotoRequest]:
         """Все запросы, ожидающие модератора (сначала самые старые)."""

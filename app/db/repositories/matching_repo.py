@@ -240,6 +240,9 @@ class MatchingRepository:
             Profile.is_hidden.is_(False),
             Profile.is_completed.is_(True),
             Profile.is_pending_review.is_(False),
+            # Анкеты без вайба (ждут модератора по «Вайб по фото») в выдачу
+            # не попадают — их карточка неполная для скоринга.
+            Profile.own_vibe_id.is_not(None),
             Profile.gender_id.in_(my_looking_for_gender_ids),
             Profile.id.in_(subq_their_lfg),
             # Мой возраст попадает в их диапазон.

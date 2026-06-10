@@ -56,6 +56,7 @@ from app.db.repositories.dictionary_repo import DictionaryRepository
 from app.db.repositories.moderation_repo import ModerationRepository
 from app.db.repositories.profile_repo import ProfileRepository
 from app.db.repositories.settings_repo import SettingsRepository
+from app.db.repositories.vibe_by_photo_repo import VibeByPhotoRepository
 from app.services.access import has_premium_access
 from app.services.analytics_events import EventType
 from app.services.content_moderation_service import ContentModerationService
@@ -110,7 +111,12 @@ async def _send_card(
     profile_repo = ProfileRepository(db_session)
 
     gender = await dict_repo.get_by_id(Gender, profile.gender_id)
-    own_vibe = await dict_repo.get_by_id(Vibe, profile.own_vibe_id)
+    # own_vibe_id IS NULL — вайб ещё подбирает модератор, рендерим заглушку.
+    own_vibe = (
+        await dict_repo.get_by_id(Vibe, profile.own_vibe_id)
+        if profile.own_vibe_id is not None
+        else None
+    )
 
     desired_vibe_ids = set(await profile_repo.get_desired_vibe_ids(profile.id))
     all_vibes = await dict_repo.list_active(Vibe)
@@ -130,8 +136,8 @@ async def _send_card(
     interests = [i for i in all_interests if i.id in interest_ids]
     looking_for_genders = [g for g in all_genders if g.id in lfg_ids]
 
-    # Только gender и own_vibe обязательны.
-    if gender is None or own_vibe is None:
+    # Только gender обязателен; own_vibe=None — валидное «ждёт модератора».
+    if gender is None or (profile.own_vibe_id is not None and own_vibe is None):
         logger.error(
             "Missing dictionary entries when rendering my-profile for user_id={}",
             profile.user_id,
@@ -1211,6 +1217,15 @@ async def on_edit_vibe_pick_own(
 
     await ProfileRepository(db_session).update(profile.id, own_vibe_id=vibe.id)
     await ProfileRepository(db_session).set_vibes_need_review(profile.id, False)
+    # Вайб выбран вручную — pending-заявка «Вайб по фото» (если была)
+    # снимается с очереди модераторов.
+    removed = await VibeByPhotoRepository(db_session).delete_pending_for_user(user.id)
+    if removed:
+        logger.info(
+            "vbp: user {} picked vibe manually — {} pending request(s) removed",
+            user.id,
+            removed,
+        )
     await _log_edited(db_session, user.id, "own_vibe_id")
     await state.clear()
     await callback.answer(texts.EDITED_OK)

@@ -67,7 +67,7 @@ def render_profile_card(
     profile: Profile,
     *,
     gender: Gender,
-    own_vibe: Vibe,
+    own_vibe: Vibe | None,
     desired_vibes: list[Vibe],
     fandoms: list[Fandom],
     desired_fandoms: list[Fandom],
@@ -86,7 +86,11 @@ def render_profile_card(
     # Заголовок: nickname, возраст.
     header = f"{profile.nickname}, {profile.age}"
 
-    own_vibe_str = texts.RENDER_VIBE_NUMBER.format(number=own_vibe.number)
+    # own_vibe=None — вайб ещё подбирает модератор («Вайб по фото»).
+    if own_vibe is not None:
+        own_vibe_str = texts.RENDER_VIBE_NUMBER.format(number=own_vibe.number)
+    else:
+        own_vibe_str = texts.RENDER_VIBE_PENDING
 
     if desired_vibes:
         desired_vibe_str = ", ".join(
@@ -140,8 +144,13 @@ async def build_rendered_profile(
     profile_repo = ProfileRepository(db_session)
 
     gender = await dict_repo.get_by_id(Gender, profile.gender_id)
-    own_vibe = await dict_repo.get_by_id(Vibe, profile.own_vibe_id)
-    if gender is None or own_vibe is None:
+    # own_vibe_id IS NULL — валидное состояние (ждёт модератора), не ошибка.
+    own_vibe = (
+        await dict_repo.get_by_id(Vibe, profile.own_vibe_id)
+        if profile.own_vibe_id is not None
+        else None
+    )
+    if gender is None or (profile.own_vibe_id is not None and own_vibe is None):
         logger.error(
             "Missing dictionary entries when rendering profile user_id={}",
             profile.user_id,

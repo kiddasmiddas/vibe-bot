@@ -81,6 +81,8 @@ ASK_OWN_VIBE_PICKER = "Выбери свой вайб"
 ASK_DESIRED_VIBE_PICKER = "Какой вайб ты ищешь? Можно несколько. Или нажми «Любой вайб»."
 DESIRED_VIBE_NEED_NON_EMPTY = "Выбери хотя бы один вайб или нажми «Любой вайб»."
 RENDER_VIBE_NUMBER = "№{number}"
+# own_vibe IS NULL → ждём, пока модератор подберёт вайб по фото.
+RENDER_VIBE_PENDING = "⏳ подбирает модератор"
 
 # --- end ---
 CANCELLED = "Регистрация отменена. Вернись к /start, когда будешь готов."

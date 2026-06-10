@@ -33,8 +33,10 @@ from app.bot.keyboards.matching import (
     MatchingActionCb,
     MatchingUndoCb,
     SuperlikeCancelCb,
+    VibePendingCb,
     actions_kb,
     superlike_cancel_kb,
+    vibe_pending_kb,
 )
 from app.bot.states.matching import MatchingStates
 from app.bot.utils.render_profile import (
@@ -507,6 +509,11 @@ async def on_search(
     if profile.is_pending_review:
         await message.answer(texts.PROFILE_PENDING_REVIEW_BLOCKED)
         return
+    # Вайб ещё не назначен (ждёт модератора по «Вайб по фото») — поиск закрыт.
+    # Даём выбор: подождать или выбрать вайб самостоятельно.
+    if profile.own_vibe_id is None:
+        await message.answer(texts.VIBE_PENDING_GUARD, reply_markup=vibe_pending_kb())
+        return
 
     service = _build_matching_service(db_session)
     candidate_results = await service.get_next_candidates(user.id, limit=20)
@@ -523,6 +530,60 @@ async def on_search(
         viewer=user,
         state=state,
     )
+
+
+# --------------------- callback: гард «вайб не назначен» -------------------
+
+
+@router.callback_query(VibePendingCb.filter())
+async def on_vibe_pending_action(
+    callback: CallbackQuery,
+    callback_data: VibePendingCb,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+) -> None:
+    """Кнопки гарда поиска: подождать модератора или выбрать вайб самому.
+
+    'pick_self' переводит в `ProfileEditStates.edit_own_vibe` — выбор в пикере
+    обрабатывает существующий хэндлер profile.py (он же снимет pending-заявку
+    модераторов с очереди).
+    """
+    from app.bot.states.profile_edit import ProfileEditStates
+    from app.bot.utils.vibe_picker import send_vibe_picker
+
+    await callback.answer()
+    msg = callback.message
+    if msg is None:
+        return
+
+    if callback_data.action == "back":
+        try:
+            await msg.edit_text(texts.VIBE_PENDING_BACK_OK)
+        except TelegramAPIError:
+            pass
+        return
+
+    if callback_data.action == "pick_self":
+        bot = callback.bot
+        if bot is None:
+            return
+        try:
+            await msg.delete()
+        except TelegramAPIError:
+            pass
+        # Пикер без кнопки «Вайб по фото»: юзер уже шёл этим путём и явно
+        # выбрал ручной вариант.
+        await send_vibe_picker(
+            bot,
+            msg.chat.id,
+            db_session,
+            role="own",
+            page=0,
+            show_vibe_by_photo=False,
+        )
+        await state.update_data(own_vibe_page=0, vbp_premium=False)
+        await state.set_state(ProfileEditStates.edit_own_vibe)
 
 
 # --------------------------- callback: действия ---------------------------

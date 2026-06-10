@@ -59,6 +59,7 @@ from app.db.repositories.dictionary_repo import DictionaryRepository
 from app.db.repositories.moderation_repo import ModerationRepository
 from app.db.repositories.profile_repo import ProfileRepository
 from app.db.repositories.settings_repo import SettingsRepository
+from app.db.repositories.vibe_by_photo_repo import VibeByPhotoRepository
 from app.services.access import has_premium_access
 from app.services.analytics_events import EventType
 from app.services.content_moderation_service import ContentModerationService
@@ -1163,8 +1164,20 @@ async def _vibe_by_photo_finalize(
         bot, db_session=db_session, user=user, file_ids=file_ids, origin=origin
     )
 
-    await message.answer(vbp_texts.SENT_TO_MOD)
-    await state.clear()
+    # Регистрация НЕ блокируется ожиданием модератора: own_vibe_id остаётся
+    # пустым (назначит модератор или юзер сам позже), а юзер сразу едет на
+    # следующий шаг — выбор вайба собеседника.
+    await message.answer(vbp_texts.SENT_TO_MOD_CONTINUE)
+    await state.update_data(
+        own_vibe_id=None,
+        vbp_photo_file_ids=[],
+        desired_vibe_numbers=[],
+        desired_vibe_page=0,
+    )
+    await send_vibe_picker(
+        bot, message.chat.id, db_session, role="desired", page=0, selected_numbers=set()
+    )
+    await state.set_state(RegistrationStates.desired_vibe)
 
 
 # ----------------------------- 14. main_media -----------------------------
@@ -1271,6 +1284,21 @@ async def _finalize_registration(
     profile_repo = ProfileRepository(db_session)
     dictionary_repo = DictionaryRepository(db_session)
     analytics_repo = AnalyticsRepository(db_session)
+    vbp_repo = VibeByPhotoRepository(db_session)
+
+    # own_vibe_id может быть None: юзер ушёл по пути «Вайб по фото» и ждёт
+    # модератора. Если модератор успел назначить вайб, пока юзер дозаполнял
+    # анкету (профиля ещё не было — _do_assign некуда было писать), подхватываем
+    # его из завершённого запроса.
+    own_vibe_id: int | None = data.get("own_vibe_id")
+    if own_vibe_id is None:
+        latest_vbp = await vbp_repo.get_latest_for_user(user.id)
+        if (
+            latest_vbp is not None
+            and latest_vbp.status == "completed"
+            and latest_vbp.assigned_vibe_id is not None
+        ):
+            own_vibe_id = latest_vbp.assigned_vibe_id
 
     try:
         profile = await profile_repo.create(
@@ -1282,11 +1310,16 @@ async def _finalize_registration(
             looking_for_age_max=data["la_max"],
             bio=data["bio"],
             city=data.get("city"),
-            own_vibe_id=data["own_vibe_id"],
+            own_vibe_id=own_vibe_id,
             main_media_type=data["main_media_type"],
             main_media_file_id=data["main_media_file_id"],
             is_pending_review=bool(data.get("pending_review", False)),
         )
+
+        # Вайб выбран вручную (например, юзер вернулся в пикер после отправки
+        # фото) — pending-заявка модераторам больше не нужна, убираем из очереди.
+        if own_vibe_id is not None:
+            await vbp_repo.delete_pending_for_user(user.id)
 
         await profile_repo.set_fandoms(profile.id, list(data.get("fandom_ids", [])))
         await profile_repo.set_desired_fandoms(profile.id, list(data.get("desired_fandom_ids", [])))
@@ -1310,7 +1343,12 @@ async def _finalize_registration(
 
     # Подгружаем справочники для рендера карточки.
     gender = await dictionary_repo.get_by_id(Gender, profile.gender_id)
-    own_vibe = await dictionary_repo.get_by_id(Vibe, profile.own_vibe_id)
+    # own_vibe_id IS NULL — ждёт модератора («Вайб по фото»), рендерим заглушку.
+    own_vibe = (
+        await dictionary_repo.get_by_id(Vibe, profile.own_vibe_id)
+        if profile.own_vibe_id is not None
+        else None
+    )
 
     all_vibes = await dictionary_repo.list_active(Vibe)
     desired_vibe_ids_set = set(data.get("desired_vibe_ids", []))
@@ -1330,8 +1368,8 @@ async def _finalize_registration(
     interests = [i for i in all_interests if i.id in interest_ids]
     looking_for_genders = [g for g in all_genders if g.id in looking_for_gender_ids]
 
-    # Только gender и own_vibe обязательны.
-    if gender is None or own_vibe is None:
+    # Только gender обязателен; own_vibe=None — валидное «ждёт модератора».
+    if gender is None or (profile.own_vibe_id is not None and own_vibe is None):
         # Справочник внезапно опустел между шагами — крайне маловероятно, но
         # не позволяем UX-падению: отдаём что есть текстом без карточки.
         logger.error(

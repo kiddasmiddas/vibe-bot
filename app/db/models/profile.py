@@ -60,10 +60,12 @@ class Profile(Base, TimestampMixin):
 
     city: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
-    own_vibe_id: Mapped[int] = mapped_column(
+    # NULL = вайб ещё не назначен (ждёт модератора по заявке «Вайб по фото»).
+    # Такие анкеты не попадают в выдачу матчинга, а вход в поиск закрыт гардом.
+    own_vibe_id: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("vibes.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
     )
 
     main_media_type: Mapped[str] = mapped_column(String(16), nullable=False)

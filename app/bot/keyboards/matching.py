@@ -33,6 +33,30 @@ class MatchingUndoCb(CallbackData, prefix="mt_undo"):
     """
 
 
+class VibePendingCb(CallbackData, prefix="vibe_pend"):
+    """Гард входа в поиск, пока модератор не подобрал вайб («Вайб по фото»).
+
+    `action` ∈ {'back', 'pick_self'}:
+    - back — вернуться в главное меню (подождать модератора);
+    - pick_self — открыть пикер и выбрать вайб самостоятельно (pending-заявка
+      модераторам при этом удаляется из очереди).
+    """
+
+    action: str
+
+
+def vibe_pending_kb() -> InlineKeyboardMarkup:
+    """Клавиатура гарда «вайб ещё не назначен»: подождать или выбрать самому."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text=texts.BTN_VIBE_PENDING_BACK, callback_data=VibePendingCb(action="back"))
+    builder.button(
+        text=texts.BTN_VIBE_PENDING_PICK_SELF,
+        callback_data=VibePendingCb(action="pick_self"),
+    )
+    builder.adjust(1, 1)
+    return builder.as_markup()
+
+
 def superlike_cancel_kb() -> InlineKeyboardMarkup:
     """Клавиатура с одной кнопкой «Отмена» под запросом superlike-сообщения."""
     builder = InlineKeyboardBuilder()
