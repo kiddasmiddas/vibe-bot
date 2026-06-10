@@ -138,25 +138,25 @@ def city_suggestions_kb(
     candidates: list[CityEntry],
     *,
     back_text: str,
-    skip_text: str,
     keep_text: str | None = None,
 ) -> InlineKeyboardMarkup:
-    """Клавиатура с кнопками-подсказками городов + «Назад» и «Не указывать».
+    """Клавиатура с кнопками-подсказками городов + «Назад».
 
     Ограничивает кол-во кнопок до ``_CITY_MAX_BUTTONS``, чтобы клавиатура
     оставалась читаемой.  Кнопки идут по 1 на ряд для удобства тапа.
 
-    ``keep_text`` — добавляет кнопку «Оставить как ввёл» (для fuzzy-вариантов
-    и городов не из словаря); сам ввод хэндлер берёт из FSM.
+    ``keep_text`` — добавляет ПОСЛЕДНЕЙ кнопку «Оставить как ввёл» (для
+    fuzzy-вариантов и городов не из словаря); сам ввод хэндлер берёт из FSM.
+    Кнопки «Не указывать город» больше нет — город обязателен (решение
+    заказчика 2026-06-10).
     """
     builder = InlineKeyboardBuilder()
     for entry in candidates[:_CITY_MAX_BUTTONS]:
         label = entry.city if not entry.region else f"{entry.city} ({entry.region})"
         builder.button(text=label, callback_data=CityCb(city=entry.city))
+    builder.button(text=back_text, callback_data=RegBackCb(step="city_back"))
     if keep_text:
         builder.button(text=keep_text, callback_data=CityKeepCb())
-    builder.button(text=skip_text, callback_data=CityCb(city=""))
-    builder.button(text=back_text, callback_data=RegBackCb(step="city_back"))
     builder.adjust(1)
     return builder.as_markup()
 

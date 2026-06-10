@@ -585,7 +585,6 @@ async def on_city_text(
         kb = city_suggestions_kb(
             [],
             back_text=texts.BTN_BACK_STEP,
-            skip_text=texts.BTN_CITY_ANY,
             keep_text=texts.BTN_CITY_KEEP_TEMPLATE.format(city=query),
         )
         await message.answer(texts.CITY_NO_MATCH_CAN_KEEP, reply_markup=kb)
@@ -599,7 +598,6 @@ async def on_city_text(
         kb = city_suggestions_kb(
             candidates,
             back_text=texts.BTN_BACK_STEP,
-            skip_text=texts.BTN_CITY_ANY,
             keep_text=texts.BTN_CITY_KEEP_TEMPLATE.format(city=query),
         )
         await message.answer(texts.CITY_FUZZY_SUGGESTIONS, reply_markup=kb)
@@ -629,7 +627,6 @@ async def on_city_text(
     kb = city_suggestions_kb(
         candidates,
         back_text=texts.BTN_BACK_STEP,
-        skip_text=texts.BTN_CITY_ANY,
     )
     await message.answer(texts.CITY_MULTIPLE_MATCHES, reply_markup=kb)
 
