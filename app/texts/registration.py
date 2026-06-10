@@ -68,7 +68,11 @@ CITY_NO_MATCH_CAN_KEEP = (
     "или попробовать написать иначе."
 )
 BTN_CITY_KEEP_TEMPLATE = "✅ Оставить «{city}»"
+BTN_CITY_RETYPE = "✏️ Ввести город заново"
+CITY_RETYPE_PROMPT = "Окей, напиши название города ещё раз."
 CITY_CONFIRMED = "Записал город: {city}."
+# Legacy: кнопка убрана из клавиатуры 2026-06-10, хэндлер CityCb(city="")
+# оставлен для старых сообщений в чатах.
 BTN_CITY_ANY = "Не указывать город"
 BTN_DESIRED_VIBE_ANY = "Любой вайб / Не важно"
 # Premium-фича: кнопка «Вайб по фото» в пикере own_vibe.

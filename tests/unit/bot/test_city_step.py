@@ -15,7 +15,6 @@ import pytest
 
 from app.bot.keyboards.registration import (
     CityCb,
-    RegBackCb,
     city_suggestions_kb,
 )
 from app.bot.utils.render_profile import render_profile_card
@@ -76,14 +75,14 @@ class TestCitySuggestionsKb:
             _make_entry("Казань", "Татарстан"),
             _make_entry("Москва", "Москва"),
         ]
-        kb = city_suggestions_kb(entries, back_text="◀️ Назад")
-        # 2 города + back = 3 кнопки в inline («Не указывать город» убрана)
+        kb = city_suggestions_kb(entries, retype_text="✏️ Ввести город заново")
+        # 2 города + «Ввести заново» = 3 кнопки (без «Не указывать» и «Назад»)
         inline_buttons = [btn for row in kb.inline_keyboard for btn in row]
         assert len(inline_buttons) == 3
 
     def test_city_button_callback_data(self) -> None:
         entries = [_make_entry("Казань", "Татарстан")]
-        kb = city_suggestions_kb(entries, back_text="◀️ Назад")
+        kb = city_suggestions_kb(entries, retype_text="✏️ Ввести город заново")
         first_btn = kb.inline_keyboard[0][0]
         cb = CityCb.unpack(first_btn.callback_data)
         assert cb.city == "Казань"
@@ -91,7 +90,7 @@ class TestCitySuggestionsKb:
     def test_no_skip_button(self) -> None:
         """Кнопки «Не указывать город» (CityCb city=\"\") больше нет."""
         entries = [_make_entry("Казань", "Татарстан")]
-        kb = city_suggestions_kb(entries, back_text="◀️ Назад", keep_text="Оставить")
+        kb = city_suggestions_kb(entries, retype_text="✏️ Заново", keep_text="Оставить")
         flat = [btn for row in kb.inline_keyboard for btn in row]
         empty_city = [
             b
@@ -100,41 +99,49 @@ class TestCitySuggestionsKb:
         ]
         assert empty_city == []
 
-    def test_back_button_callback_data(self) -> None:
+    def test_no_back_button(self) -> None:
+        """Кнопки «Назад» (RegBackCb) в клавиатуре города больше нет."""
         entries = [_make_entry("Казань", "Татарстан")]
-        kb = city_suggestions_kb(entries, back_text="◀️ Назад")
+        kb = city_suggestions_kb(entries, retype_text="✏️ Заново", keep_text="Оставить")
         flat = [btn for row in kb.inline_keyboard for btn in row]
-        back_btn = flat[-1]
-        cb = RegBackCb.unpack(back_btn.callback_data)
-        assert cb.step == "city_back"
+        assert all(not b.callback_data.startswith("reg_back") for b in flat)
+
+    def test_retype_button_callback_data(self) -> None:
+        from app.bot.keyboards.registration import CityRetypeCb
+
+        entries = [_make_entry("Казань", "Татарстан")]
+        kb = city_suggestions_kb(entries, retype_text="✏️ Ввести город заново")
+        flat = [btn for row in kb.inline_keyboard for btn in row]
+        assert flat[-1].callback_data == CityRetypeCb().pack()
+        assert flat[-1].text == "✏️ Ввести город заново"
 
     def test_keep_button_is_last(self) -> None:
         """С keep_text порядок: города → Назад → «Оставить» последней."""
-        from app.bot.keyboards.registration import CityKeepCb
+        from app.bot.keyboards.registration import CityKeepCb, CityRetypeCb
 
         entries = [_make_entry("Тайшет", "Иркутская область")]
-        kb = city_suggestions_kb(entries, back_text="Назад", keep_text="✅ Оставить «Ташкент»")
+        kb = city_suggestions_kb(entries, retype_text="✏️ Заново", keep_text="✅ Оставить «Ташкент»")
         flat = [btn for row in kb.inline_keyboard for btn in row]
         assert flat[-1].callback_data == CityKeepCb().pack()
         assert flat[-1].text == "✅ Оставить «Ташкент»"
-        assert RegBackCb.unpack(flat[-2].callback_data).step == "city_back"
+        assert flat[-2].callback_data == CityRetypeCb().pack()
 
     def test_label_includes_region(self) -> None:
         entries = [_make_entry("Ростов", "Ярославская область")]
-        kb = city_suggestions_kb(entries, back_text="◀️ Назад")
+        kb = city_suggestions_kb(entries, retype_text="✏️ Заново")
         flat = [btn for row in kb.inline_keyboard for btn in row]
         assert "Ярославская область" in flat[0].text
 
     def test_max_buttons_capped(self) -> None:
         """Количество кнопок городов не превышает _CITY_MAX_BUTTONS=6."""
         entries = [_make_entry(f"Город{i}", "Регион") for i in range(10)]
-        kb = city_suggestions_kb(entries, back_text="Назад")
+        kb = city_suggestions_kb(entries, retype_text="✏️ Заново")
         flat = [btn for row in kb.inline_keyboard for btn in row]
-        # 6 городов + back = 7
+        # 6 городов + «Ввести заново» = 7
         assert len(flat) == 7
 
-    def test_empty_candidates_has_only_back(self) -> None:
-        kb = city_suggestions_kb([], back_text="Назад")
+    def test_empty_candidates_has_only_retype(self) -> None:
+        kb = city_suggestions_kb([], retype_text="✏️ Заново")
         flat = [btn for row in kb.inline_keyboard for btn in row]
         assert len(flat) == 1
 
@@ -324,7 +331,7 @@ class TestCityKeepButton:
 
         kb = city_suggestions_kb(
             [],
-            back_text="Назад",
+            retype_text="✏️ Заново",
             keep_text="✅ Оставить «Ташкент»",
         )
         all_buttons = [b for row in kb.inline_keyboard for b in row]
@@ -333,6 +340,6 @@ class TestCityKeepButton:
         assert keep[0].text == "✅ Оставить «Ташкент»"
 
     def test_keep_button_absent_by_default(self) -> None:
-        kb = city_suggestions_kb([], back_text="Назад")
+        kb = city_suggestions_kb([], retype_text="✏️ Заново")
         all_buttons = [b for row in kb.inline_keyboard for b in row]
         assert all(not b.callback_data.startswith("city_keep") for b in all_buttons)

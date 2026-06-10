@@ -11,6 +11,7 @@ from __future__ import annotations
 from io import BytesIO
 
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
@@ -29,6 +30,7 @@ from app.bot.keyboards.profile_edit import (
 from app.bot.keyboards.registration import (
     CityCb,
     CityKeepCb,
+    CityRetypeCb,
     GenderCb,
     RegBackCb,
     VibeAnyCb,
@@ -720,8 +722,8 @@ async def on_edit_city_text(
         await state.update_data(city_freeform=query)
         kb = city_suggestions_kb(
             [],
-            back_text=reg_texts.BTN_BACK_STEP,
             keep_text=reg_texts.BTN_CITY_KEEP_TEMPLATE.format(city=query),
+            retype_text=reg_texts.BTN_CITY_RETYPE,
         )
         await message.answer(reg_texts.CITY_NO_MATCH_CAN_KEEP, reply_markup=kb)
         return
@@ -731,8 +733,8 @@ async def on_edit_city_text(
         await state.update_data(city_freeform=query)
         kb = city_suggestions_kb(
             candidates,
-            back_text=reg_texts.BTN_BACK_STEP,
             keep_text=reg_texts.BTN_CITY_KEEP_TEMPLATE.format(city=query),
+            retype_text=reg_texts.BTN_CITY_RETYPE,
         )
         await message.answer(reg_texts.CITY_FUZZY_SUGGESTIONS, reply_markup=kb)
         return
@@ -750,7 +752,7 @@ async def on_edit_city_text(
 
     kb = city_suggestions_kb(
         candidates,
-        back_text=reg_texts.BTN_BACK_STEP,
+        retype_text=reg_texts.BTN_CITY_RETYPE,
     )
     await message.answer(reg_texts.CITY_MULTIPLE_MATCHES, reply_markup=kb)
 
@@ -790,6 +792,23 @@ async def on_edit_city_keep(
         await callback.message.answer(reg_texts.ASK_CITY)
         return
     await _save_city_and_render(callback.message, state, db_session, bot, user.id, city_name)
+
+
+@router.callback_query(ProfileEditStates.edit_city, CityRetypeCb.filter())
+async def on_edit_city_retype(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    """«Ввести город заново» при редактировании — ждём новый текст."""
+    await callback.answer()
+    await state.update_data(city_freeform=None)
+    if callback.message is None:
+        return
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except TelegramAPIError:
+        pass
+    await callback.message.answer(reg_texts.CITY_RETYPE_PROMPT)
 
 
 @router.callback_query(ProfileEditStates.edit_city, RegBackCb.filter())

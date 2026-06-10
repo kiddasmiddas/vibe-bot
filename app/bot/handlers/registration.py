@@ -28,6 +28,7 @@ from app.bot.keyboards.registration import (
     CaptchaCb,
     CityCb,
     CityKeepCb,
+    CityRetypeCb,
     GenderCb,
     RegBackCb,
     VibeAnyCb,
@@ -584,8 +585,8 @@ async def on_city_text(
         await state.update_data(city_freeform=query)
         kb = city_suggestions_kb(
             [],
-            back_text=texts.BTN_BACK_STEP,
             keep_text=texts.BTN_CITY_KEEP_TEMPLATE.format(city=query),
+            retype_text=texts.BTN_CITY_RETYPE,
         )
         await message.answer(texts.CITY_NO_MATCH_CAN_KEEP, reply_markup=kb)
         return
@@ -597,8 +598,8 @@ async def on_city_text(
         await state.update_data(city_freeform=query)
         kb = city_suggestions_kb(
             candidates,
-            back_text=texts.BTN_BACK_STEP,
             keep_text=texts.BTN_CITY_KEEP_TEMPLATE.format(city=query),
+            retype_text=texts.BTN_CITY_RETYPE,
         )
         await message.answer(texts.CITY_FUZZY_SUGGESTIONS, reply_markup=kb)
         return
@@ -626,7 +627,7 @@ async def on_city_text(
     # Несколько вариантов → кнопки.
     kb = city_suggestions_kb(
         candidates,
-        back_text=texts.BTN_BACK_STEP,
+        retype_text=texts.BTN_CITY_RETYPE,
     )
     await message.answer(texts.CITY_MULTIPLE_MATCHES, reply_markup=kb)
 
@@ -677,6 +678,24 @@ async def on_city_keep(
     await callback.message.answer(texts.CITY_CONFIRMED.format(city=city_name))
     await _send_fandoms_screen(callback.message, state, db_session)
     await state.set_state(RegistrationStates.fandoms)
+
+
+@router.callback_query(StateFilter(RegistrationStates.city), CityRetypeCb.filter())
+async def on_city_retype(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    """«Ввести город заново» — остаёмся на шаге города, ждём новый текст."""
+    await callback.answer()
+    await state.update_data(city_freeform=None)
+    if callback.message is None:
+        return
+    # Снимаем клавиатуру со старого сообщения, чтобы не было двух активных.
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except TelegramAPIError:
+        pass
+    await callback.message.answer(texts.CITY_RETYPE_PROMPT)
 
 
 @router.callback_query(StateFilter(RegistrationStates.city), RegBackCb.filter())
