@@ -33,11 +33,15 @@ STOP_WORD_CATEGORIES: tuple[str, ...] = ("hate_speech", "link", "adult_keyword",
 MODERATION_TARGET_KINDS: tuple[str, ...] = (
     "profile_bio",
     "profile_nickname",
+    "profile_city",
     "profile_media",
     "like_message",
     "creator_post_text",
     "creator_post_photo",
     "complaint_comment",
+    "feed_post",
+    "feed_comment",
+    "feed_media",
 )
 MODERATION_CHECK_TYPES: tuple[str, ...] = ("text", "nsfw_image")
 MODERATION_DECISIONS: tuple[str, ...] = ("approved", "manual_review", "rejected")
@@ -140,7 +144,8 @@ class ContentModerationLog(Base):
         CheckConstraint(
             "target_kind IN ('profile_bio', 'profile_nickname', 'profile_media', "
             "'like_message', 'creator_post_text', 'creator_post_photo', "
-            "'complaint_comment', 'feed_post', 'feed_comment', 'feed_media')",
+            "'complaint_comment', 'feed_post', 'feed_comment', 'feed_media', "
+            "'profile_city')",
             name="target_kind_allowed",
         ),
         CheckConstraint("check_type IN ('text', 'nsfw_image')", name="check_type_allowed"),
