@@ -51,10 +51,10 @@ async def test_premium_screen_shows_three_tariff_buttons_and_new_benefits(db_ses
 
     message.answer.assert_awaited_once()
     text_sent = message.answer.call_args.args[0]
-    # Новый текст преимуществ — фрагменты из ТЗ.
+    # Новый текст преимуществ — фрагменты из согласованного с заказчиком списка.
     assert "Безлимит лайков" in text_sent
-    assert "Вайб по фото" in text_sent
-    assert "предыдущей анкете" in text_sent
+    assert "Определение вайба по фото" in text_sent
+    assert "вернуться к прошлым анкетам" in text_sent
 
     # Все три кнопки тарифов отрисованы в reply_markup.
     repr_call = str(message.answer.call_args)
