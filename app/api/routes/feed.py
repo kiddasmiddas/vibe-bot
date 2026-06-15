@@ -363,17 +363,22 @@ async def list_comments(
         p = await profile_repo.get_by_user_id(aid)
         author_names[aid] = p.nickname if (p and p.nickname) else "Deleted"
 
-    items = [
-        CommentItem(
-            id=c.id,
-            author_name=author_names.get(c.author_user_id, "Unknown"),
-            text=c.text,
-            media_type=c.media_type,
-            media_file_id=c.media_file_id,
-            created_at=c.created_at.isoformat(),
+    # media_file_id храним как Telegram file_id, но фронту нужен готовый HTTP-URL
+    # для <img src> — резолвим так же, как медиа постов (resolve_file_url).
+    # Без этого в src попадал сырой file_id и фото комментария не отображалось.
+    items: list[CommentItem] = []
+    for c in comments:
+        media_url = await resolve_file_url(c.media_file_id) if c.media_file_id else None
+        items.append(
+            CommentItem(
+                id=c.id,
+                author_name=author_names.get(c.author_user_id, "Unknown"),
+                text=c.text,
+                media_type=c.media_type,
+                media_file_id=media_url,
+                created_at=c.created_at.isoformat(),
+            )
         )
-        for c in comments
-    ]
 
     next_cursor: str | None = None
     if next_raw is not None:
