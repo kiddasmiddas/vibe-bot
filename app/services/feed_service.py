@@ -21,11 +21,13 @@ from app.db.repositories.settings_repo import SettingsRepository
 from app.services.access import has_premium_access
 from app.services.analytics_events import EventType
 from app.services.content_moderation_service import ContentModerationService
+from app.texts.feed import POST_LIMIT_REACHED_PREMIUM, POST_LIMIT_REACHED_REGULAR
 
 _VALID_REACTION_TYPES: frozenset[str] = frozenset({"heart", "sparkle", "cry", "eyes"})
 
 # Дефолты на случай отсутствия ключа в settings
 _DEFAULT_POST_LIMIT_PREMIUM_MONTH = 50
+_DEFAULT_POST_LIMIT_REGULAR_MONTH = 5
 _DEFAULT_COMMENT_LIMIT_REGULAR_DAY = 30
 _DEFAULT_COMMENT_LIMIT_PREMIUM_DAY = 300
 _DEFAULT_POST_TTL_HOURS = 48
@@ -109,14 +111,29 @@ class FeedService:
         """
         now = datetime.now(tz=UTC)
 
-        # Лимит месячный
-        monthly_limit = await self._setting_int(
+        # Месячный лимит постов зависит от статуса пользователя:
+        # Premium — feed_post_limit_premium_month (дефолт 50),
+        # обычный — feed_post_limit_regular_month (дефолт 5).
+        is_premium = has_premium_access(user)
+        premium_limit = await self._setting_int(
             "feed_post_limit_premium_month", _DEFAULT_POST_LIMIT_PREMIUM_MONTH
         )
+        if is_premium:
+            monthly_limit = premium_limit
+        else:
+            monthly_limit = await self._setting_int(
+                "feed_post_limit_regular_month", _DEFAULT_POST_LIMIT_REGULAR_MONTH
+            )
         month_start = _start_of_month(now)
         month_count = await self._feed_repo.count_posts_by_user_since(user.id, month_start)
         if month_count >= monthly_limit:
-            raise FeedServiceError(422, f"Monthly post limit of {monthly_limit} reached")
+            if is_premium:
+                detail = POST_LIMIT_REACHED_PREMIUM.format(limit=monthly_limit)
+            else:
+                detail = POST_LIMIT_REACHED_REGULAR.format(
+                    limit=monthly_limit, premium_limit=premium_limit
+                )
+            raise FeedServiceError(422, detail)
 
         # Модерация текста — ссылки запрещены
         mod_result = await self._moderation.check_text(

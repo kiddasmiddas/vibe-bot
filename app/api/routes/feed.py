@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.db import get_db_session
 from app.api.deps import (
-    current_premium_user_with_profile,
     current_user,
     current_user_with_profile,
 )
@@ -91,19 +90,24 @@ def _decode_cursor(cursor: str) -> tuple[datetime, int] | None:
 async def _check_rate_limit(user_id: int) -> None:
     """Простой Redis-троттл для write-эндпоинтов.
 
-    При недоступности Redis — пропускаем (graceful degradation).
+    Атомарный INCR вместо read-check-incr — нет TOCTOU-гонки, при которой два
+    параллельных запроса одного юзера прочитали бы один и тот же счётчик и оба
+    прошли. TTL окна ставится при первом инкременте.
+
+    При недоступности Redis — пропускаем (graceful degradation): ронять все
+    write-операции Ленты из-за сбоя Redis нежелательно, а месячный лимит постов
+    и дневной лимит комментариев проверяются отдельно в БД и остаются жёстким
+    полом против флуда.
     """
     redis = get_redis()
     key = f"feed_write_rl:{user_id}"
     try:
-        count_raw = await redis.get(key)
-        count = int(count_raw) if count_raw else 0
-        if count >= _RL_MAX_REQUESTS:
+        # SET NX EX ставит значение И TTL атомарно при первом запросе окна —
+        # нет щели «INCR прошёл, EXPIRE не успел» (ключ без TTL завис бы навсегда).
+        was_first = await redis.set(key, 1, ex=_RL_WINDOW_SECONDS, nx=True)
+        count = 1 if was_first else await redis.incr(key)
+        if count > _RL_MAX_REQUESTS:
             raise HTTPException(status_code=429, detail="Too many requests")
-        pipe = redis.pipeline()
-        pipe.incr(key)
-        pipe.expire(key, _RL_WINDOW_SECONDS)
-        await pipe.execute()
     except HTTPException:
         raise
     except Exception as exc:
@@ -395,13 +399,17 @@ async def list_comments(
 @router.post("/api/feed/posts", response_model=CreatePostResponse, status_code=201)
 async def create_post(
     body: CreatePostRequest,
-    pair: tuple[User, Profile] = Depends(current_premium_user_with_profile),
+    pair: tuple[User, Profile] = Depends(current_user_with_profile),
     db: AsyncSession = Depends(get_db_session),
 ) -> CreatePostResponse:
-    """Создать пост (только Premium + завершённая анкета).
+    """Создать пост (любой пользователь с завершённой анкетой).
 
-    403 если не Premium / нет анкеты.
-    422 если лимит исчерпан или текст содержит ссылку.
+    Месячный лимит постов зависит от статуса: обычный пользователь —
+    `feed_post_limit_regular_month` (дефолт 5), Premium —
+    `feed_post_limit_premium_month` (дефолт 50). Лимит проверяется в сервисе.
+
+    403 если нет завершённой анкеты.
+    422 если месячный лимит исчерпан или текст содержит ссылку.
     """
     user, profile = pair
     await _check_rate_limit(user.id)

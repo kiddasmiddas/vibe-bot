@@ -95,7 +95,12 @@ async function fetchJson<T>(path: string, options: FetchOptions = {}): Promise<T
     throw new NotFoundError()
   }
 
-  if (response.status === 403 || response.status === 422 || response.status === 409) {
+  if (
+    response.status === 403 ||
+    response.status === 422 ||
+    response.status === 409 ||
+    response.status === 429
+  ) {
     let detail = `HTTP ${response.status}`
     let reason: string | undefined
     try {
@@ -282,7 +287,13 @@ export async function uploadFeedMedia(file: File): Promise<UploadMediaResult> {
   if (response.status === 401) throw new UnauthorizedError()
   if (response.status === 404) throw new NotFoundError()
 
-  if (response.status === 422 || response.status === 502 || response.status === 503) {
+  if (
+    response.status === 403 ||
+    response.status === 422 ||
+    response.status === 429 ||
+    response.status === 502 ||
+    response.status === 503
+  ) {
     let detail = `HTTP ${response.status}`
     try {
       const json = (await response.json()) as { detail?: string }
@@ -290,7 +301,7 @@ export async function uploadFeedMedia(file: File): Promise<UploadMediaResult> {
     } catch {
       // ignore parse errors
     }
-    throw new ApiError(detail)
+    throw new ApiError(detail, response.status)
   }
 
   if (!response.ok) {

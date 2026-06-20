@@ -58,7 +58,10 @@ export function FeedCreate() {
       setSubmitState('idle')
     } catch (err) {
       URL.revokeObjectURL(previewUrl)
-      const msg = err instanceof ApiError ? err.message : 'Не удалось загрузить фото. Попробуйте ещё раз.'
+      let msg = 'Не удалось загрузить фото. Попробуйте ещё раз.'
+      if (err instanceof ApiError) {
+        msg = err.status === 429 ? 'Слишком часто. Подожди немного и попробуй снова.' : err.message
+      }
       setSubmitState('error-validation')
       setErrorMessage(msg)
     }
@@ -94,15 +97,12 @@ export function FeedCreate() {
       navigate('/feed')
     } catch (err) {
       if (err instanceof ApiError) {
-        const msg = err.message
-        const isForbidden =
-          msg.toLowerCase().includes('premium') ||
-          msg.toLowerCase().includes('анкет') ||
-          msg.toLowerCase().includes('forbidden') ||
-          msg.toLowerCase().includes('запрещ') ||
-          msg.toLowerCase().includes('доступ')
-        setSubmitState(isForbidden ? 'error-forbidden' : 'error-validation')
-        setErrorMessage(msg)
+        // 403 — нет завершённой анкеты; 429 — троттлинг; остальное (422
+        // лимит/валидация) показываем с текстом ответа сервера.
+        setSubmitState(err.status === 403 ? 'error-forbidden' : 'error-validation')
+        setErrorMessage(
+          err.status === 429 ? 'Слишком часто. Подожди немного и попробуй снова.' : err.message,
+        )
       } else {
         setSubmitState('error-network')
         setErrorMessage('Ошибка сети. Попробуйте ещё раз.')
@@ -221,7 +221,7 @@ export function FeedCreate() {
 
         {submitState === 'error-forbidden' && (
           <p id="post-error" className={styles.errorForbidden} role="alert">
-            Только для Premium-пользователей с заполненной анкетой.
+            Сначала заполни анкету, чтобы публиковать посты.
           </p>
         )}
 

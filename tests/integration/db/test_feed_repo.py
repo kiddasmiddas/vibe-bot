@@ -64,6 +64,77 @@ async def _make_comment(
     return comment
 
 
+async def _make_post_at(
+    db: AsyncSession,
+    author_user_id: int,
+    *,
+    created_at: datetime,
+    expires_at: datetime,
+    status: str = "active",
+) -> Any:
+    """Пост с принудительно заданными created_at / expires_at / status."""
+    repo = FeedRepository(db)
+    post = await repo.create_post(
+        author_user_id=author_user_id,
+        author_name="TestAuthor",
+        text="Post body",
+        status=status,
+        is_pending_review=False,
+        published_at=created_at,
+        expires_at=expires_at,
+    )
+    post.created_at = created_at
+    await db.flush()
+    return post
+
+
+@pytest.mark.asyncio
+async def test_purge_keeps_current_month_posts(db_session: AsyncSession) -> None:
+    """purge_old_posts удаляет старые посты, но НЕ трогает посты текущего месяца.
+
+    Это держит месячный лимит постов честным: count_posts_by_user_since не
+    «обнуляется» purge'ем до конца месяца.
+    """
+    user = await _make_user(db_session, telegram_id=20_900)
+    now = datetime.now(tz=UTC)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    # A: прошлый месяц, истёк → должен быть удалён.
+    old = await _make_post_at(
+        db_session,
+        user.id,
+        created_at=month_start - timedelta(days=5),
+        expires_at=month_start - timedelta(days=3),
+        status="expired",
+    )
+    # B: текущий месяц, истёк → должен ОСТАТЬСЯ (расходует слот лимита).
+    current_expired = await _make_post_at(
+        db_session,
+        user.id,
+        created_at=now,
+        expires_at=now - timedelta(hours=1),
+        status="expired",
+    )
+    # C: текущий месяц, активный → остаётся (статус не под purge).
+    current_active = await _make_post_at(
+        db_session,
+        user.id,
+        created_at=now,
+        expires_at=now + timedelta(hours=48),
+        status="active",
+    )
+
+    repo = FeedRepository(db_session)
+    deleted = await repo.purge_old_posts(now, keep_created_since=month_start)
+
+    assert deleted == 1
+    assert await repo.get_by_id(old.id) is None
+    assert await repo.get_by_id(current_expired.id) is not None
+    assert await repo.get_by_id(current_active.id) is not None
+    # Счётчик месяца видит оба текущих поста.
+    assert await repo.count_posts_by_user_since(user.id, month_start) == 2
+
+
 @pytest.mark.asyncio
 async def test_list_comments_cursor_asc_order(db_session: AsyncSession) -> None:
     """Без курсора — комментарии возвращаются в ASC по created_at (старые первыми)."""

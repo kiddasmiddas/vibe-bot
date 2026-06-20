@@ -53,11 +53,15 @@ async def purge_feed_posts(session_factory: async_sessionmaker[AsyncSession]) ->
                 purge_days,
             )
 
-        before = datetime.now(tz=UTC) - timedelta(days=purge_days)
+        now = datetime.now(tz=UTC)
+        before = now - timedelta(days=purge_days)
+        # Начало текущего календарного месяца — посты этого месяца не трогаем,
+        # чтобы месячный лимит постов не «обнулялся» purge'ем до конца месяца.
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
         async with session.begin():
             repo = FeedRepository(session)
-            deleted = await repo.purge_old_posts(before)
+            deleted = await repo.purge_old_posts(before, keep_created_since=month_start)
 
     if deleted:
         logger.info(

@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
+
+# Допустимые типы медиа на ВХОДЕ (что отдаёт /api/feed/upload). На выходе схемы
+# оставляем str — в БД могут быть легаси-значения, строгий Literal уронил бы
+# сериализацию ответа.
+MediaTypeIn = Literal["photo", "gif"]
 
 
 class FeedPostPreview(BaseModel):
@@ -23,7 +30,20 @@ class ReactionCounts(BaseModel):
 
 
 class MediaItem(BaseModel):
+    """Медиа в ОТВЕТЕ (из БД). media_type — str, чтобы не падать на легаси."""
+
     media_type: str
+    file_id: str
+
+
+class MediaItemIn(BaseModel):
+    """Медиа во ВХОДЯЩЕМ запросе (создание/редактирование поста).
+
+    media_type валидируется строго — отвергаем всё, кроме photo/gif, ещё на
+    десериализации (раньше можно было сохранить произвольную строку ≤16 симв.).
+    """
+
+    media_type: MediaTypeIn
     file_id: str
 
 
@@ -58,7 +78,7 @@ class FeedResponse(BaseModel):
 
 class CreatePostRequest(BaseModel):
     text: str
-    media: list[MediaItem] = []
+    media: list[MediaItemIn] = []
 
 
 class CreatePostResponse(BaseModel):
@@ -76,12 +96,12 @@ class UpdatePostRequest(BaseModel):
     """
 
     text: str
-    media: list[MediaItem] | None = None
+    media: list[MediaItemIn] | None = None
 
 
 class CreateCommentRequest(BaseModel):
     text: str | None = None
-    media_type: str | None = None
+    media_type: MediaTypeIn | None = None
     media_file_id: str | None = None
 
 

@@ -115,7 +115,10 @@ class FeedRepository:
     async def count_posts_by_user_since(self, user_id: int, since: datetime) -> int:
         """Число постов пользователя, созданных начиная с `since`.
 
-        Используется для месячного лимита Premium-пользователей.
+        Используется для месячного лимита постов (обычный пользователь — 5,
+        Premium — 50). Считаются посты всех статусов (active/expired/blocked/
+        hidden), кроме физически удалённых планировщиком, — опубликованный
+        пост расходует слот независимо от дальнейшей судьбы.
         """
         stmt = select(func.count()).where(
             FeedPost.author_user_id == user_id,
@@ -402,18 +405,25 @@ class FeedRepository:
         await self._session.flush()
         return result.rowcount  # type: ignore[return-value]
 
-    async def purge_old_posts(self, before: datetime) -> int:
-        """Физически удалить посты, удовлетворяющие условию purge.
+    async def purge_old_posts(self, before: datetime, *, keep_created_since: datetime) -> int:
+        """Физически удалить старые посты Ленты.
 
         DELETE FROM feed_posts
         WHERE status IN ('expired','hidden_by_moderator','deleted_by_user','blocked')
-        AND expires_at < before.
+        AND expires_at < before
+        AND created_at < keep_created_since.
         CASCADE удалит связанные media/comments/reactions.
         Возвращает количество удалённых строк.
+
+        `keep_created_since` — начало текущего календарного месяца: посты этого
+        месяца НЕ удаляются, даже если уже истекли, чтобы месячный лимит постов
+        (`count_posts_by_user_since`) считался честно и purge не «обнулял» его до
+        конца месяца. Посты прошлых месяцев в текущий счёт не входят — их чистим.
         """
         stmt = delete(FeedPost).where(
             FeedPost.status.in_(["expired", "hidden_by_moderator", "deleted_by_user", "blocked"]),
             FeedPost.expires_at < before,
+            FeedPost.created_at < keep_created_since,
         )
         result = await self._session.execute(stmt)
         await self._session.flush()
