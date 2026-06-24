@@ -111,3 +111,33 @@ def actions_kb(target_user_id: int, *, show_undo: bool = False) -> InlineKeyboar
     else:
         builder.adjust(2, 1, 3)
     return builder.as_markup()
+
+
+class AdSkipCb(CallbackData, prefix="ad_skip"):
+    """Кнопка «Не интересно» под авто-рекламой — листаем анкеты дальше."""
+
+
+def ad_kb(
+    *,
+    button_label: str | None,
+    button_target: str | None,
+    button_url: str | None,
+) -> InlineKeyboardMarkup:
+    """Клавиатура под авто-рекламой: опциональная кнопка перехода + «Не интересно».
+
+    Кнопка перехода рендерится только если задан `button_label`:
+    - `button_target='url'` → ссылка на спонсора (`button_url`);
+    - `button_target='premium'` → открыть экран покупки Premium в боте.
+    """
+    from app.bot.keyboards.premium import PremiumActionCb
+    from app.texts import ads_rotation as ad_texts
+
+    builder = InlineKeyboardBuilder()
+    if button_label:
+        if button_target == "url" and button_url:
+            builder.button(text=button_label, url=button_url)
+        elif button_target == "premium":
+            builder.button(text=button_label, callback_data=PremiumActionCb(action="open"))
+    builder.button(text=ad_texts.BTN_NOT_INTERESTED, callback_data=AdSkipCb())
+    builder.adjust(1)
+    return builder.as_markup()

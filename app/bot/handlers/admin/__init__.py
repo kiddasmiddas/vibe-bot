@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from aiogram import Router
 
+from app.bot.handlers.admin.ads_rotation import router as ads_rotation_router
 from app.bot.handlers.admin.analytics import router as analytics_router
 from app.bot.handlers.admin.complaints import router as complaints_router
 from app.bot.handlers.admin.creators import router as creators_router
@@ -28,6 +29,7 @@ admin_router.include_router(creators_router)
 admin_router.include_router(feed_router)
 admin_router.include_router(premium_router)
 admin_router.include_router(promo_router)
+admin_router.include_router(ads_rotation_router)
 admin_router.include_router(dicts_router)
 admin_router.include_router(review_router)
 admin_router.include_router(stopwords_router)

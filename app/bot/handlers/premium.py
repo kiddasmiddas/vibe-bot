@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
-from aiogram.types import Message, PreCheckoutQuery
+from aiogram.types import CallbackQuery, Message, PreCheckoutQuery
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -57,6 +57,19 @@ async def on_premium_menu(message: Message, user: User, db_session: AsyncSession
 
     screen_text = f"<b>{texts.SCREEN_TITLE}</b>\n\n{texts.BENEFITS}\n\n{texts.CHOOSE_TARIFF_HEADER}"
     await message.answer(screen_text, reply_markup=premium_screen_kb(), parse_mode="HTML")
+
+
+@router.callback_query(PremiumActionCb.filter(F.action == "open"))
+async def cb_premium_open(
+    callback: CallbackQuery,
+    user: User,
+    db_session: AsyncSession,
+) -> None:
+    """Открыть экран Premium из инлайн-кнопки (напр. кнопка «Купить» под авто-рекламой)."""
+    await callback.answer()
+    if callback.message is None:
+        return
+    await on_premium_menu(callback.message, user, db_session)
 
 
 @router.callback_query(PremiumActionCb.filter(F.action == "buy"))

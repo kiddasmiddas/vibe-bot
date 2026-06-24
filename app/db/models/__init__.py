@@ -1,6 +1,7 @@
 """Регистрация моделей в Base.metadata. Импортировать здесь все модули моделей."""
 
 from app.db.models.admin import Admin
+from app.db.models.ads_rotation import AdRotationPost
 from app.db.models.analytics import AnalyticsEvent
 from app.db.models.creators import CreatorPost, CreatorPostPhoto, CreatorSubmission
 from app.db.models.dictionaries import (
@@ -34,6 +35,7 @@ from app.db.models.user import User
 from app.db.models.vibe_by_photo import VibeByPhotoRequest
 
 __all__ = [
+    "AdRotationPost",
     "Admin",
     "AnalyticsEvent",
     "AppSetting",

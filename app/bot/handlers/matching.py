@@ -30,11 +30,13 @@ from app.bot.handlers.blocks import start_block_flow
 from app.bot.handlers.complaints import start_complaint_flow
 from app.bot.keyboards.main_menu import main_menu_kb
 from app.bot.keyboards.matching import (
+    AdSkipCb,
     MatchingActionCb,
     MatchingUndoCb,
     SuperlikeCancelCb,
     VibePendingCb,
     actions_kb,
+    ad_kb,
     superlike_cancel_kb,
     vibe_pending_kb,
 )
@@ -45,8 +47,10 @@ from app.bot.utils.render_profile import (
     truncate_caption,
 )
 from app.cache import get_redis
+from app.db.models.ads_rotation import AdRotationPost
 from app.db.models.profile import Profile
 from app.db.models.user import User
+from app.db.repositories.ads_rotation_repo import AdsRotationRepository
 from app.db.repositories.analytics_repo import AnalyticsRepository
 from app.db.repositories.dictionary_repo import DictionaryRepository
 from app.db.repositories.matching_repo import MatchingRepository
@@ -55,6 +59,7 @@ from app.db.repositories.profile_repo import ProfileRepository
 from app.db.repositories.settings_repo import SettingsRepository
 from app.db.repositories.user_repo import UserRepository
 from app.services.access import has_premium_access
+from app.services.ads_rotation_service import AdsRotationService
 from app.services.analytics_events import EventType
 from app.services.content_moderation_service import ContentModerationService
 from app.services.matching_service import CandidateResult, MatchingService
@@ -434,6 +439,74 @@ async def _edit_to_next_candidate(
     await _update_seen_history(state, shown_user_id=candidate.user_id)
 
 
+# ---------------------------------------------------------------------------
+# Авто-реклама в ленте анкет (ротация)
+# ---------------------------------------------------------------------------
+
+
+def _build_ads_rotation_service(db_session: AsyncSession) -> AdsRotationService:
+    # SettingsRepository БЕЗ redis: чтение ads_rotation_every_n идёт прямо из БД.
+    # Так сбой Redis не валит показ анкет на чтении настройки (счётчик ниже —
+    # единственное обращение к Redis, и оно fail-open внутри сервиса).
+    return AdsRotationService(
+        ads_repo=AdsRotationRepository(db_session),
+        settings_repo=SettingsRepository(db_session),
+        redis=get_redis(),
+    )
+
+
+async def _maybe_pick_ad(db_session: AsyncSession, user: User) -> AdRotationPost | None:
+    """Зарегистрировать просмотр и, если пора, вернуть креатив рекламы (или None)."""
+    service = _build_ads_rotation_service(db_session)
+    return await service.tick_and_pick(user.id, is_premium=has_premium_access(user))
+
+
+async def _show_ad(message: Message, ad: AdRotationPost) -> None:
+    """Показать рекламу-«воротца»: гасим кнопки текущей карточки и шлём креатив.
+
+    Следующая анкета НЕ показывается здесь — пользователь сам жмёт «Не интересно».
+    """
+    try:
+        await message.edit_reply_markup(reply_markup=None)
+    except TelegramAPIError as exc:  # pragma: no cover — telegram-сеть
+        logger.warning("ads: failed to strip candidate card kb: {}", exc)
+
+    kb = ad_kb(
+        button_label=ad.button_label,
+        button_target=ad.button_target,
+        button_url=ad.button_url,
+    )
+    if ad.media_file_id and ad.media_type:
+        caption = truncate_caption(ad.text) if ad.text else None
+        if ad.media_type == "photo":
+            await message.answer_photo(ad.media_file_id, caption=caption, reply_markup=kb)
+        elif ad.media_type == "video":
+            await message.answer_video(ad.media_file_id, caption=caption, reply_markup=kb)
+        else:
+            await message.answer_animation(ad.media_file_id, caption=caption, reply_markup=kb)
+    else:
+        await message.answer(ad.text or "", reply_markup=kb)
+
+
+async def _advance_or_show_ad(
+    message: Message,
+    db_session: AsyncSession,
+    user: User,
+    *,
+    state: FSMContext | None,
+) -> None:
+    """После действия над анкетой: показать рекламу (если пора) ИЛИ следующую анкету.
+
+    Реклама показывается не-премиум пользователю после каждой N-й анкеты. Если
+    реклама не выпала — обычное поведение (карточка редактируется на следующую).
+    """
+    ad = await _maybe_pick_ad(db_session, user)
+    if ad is not None:
+        await _show_ad(message, ad)
+        return
+    await _edit_to_next_candidate(message, db_session, user, state=state)
+
+
 async def _try_add_dislike(
     db_session: AsyncSession,
     *,
@@ -678,7 +751,7 @@ async def on_matching_action(
                 initial_message=outcome.initial_message,
             )
         await callback.answer()
-        await _edit_to_next_candidate(callback.message, db_session, user, state=state)
+        await _advance_or_show_ad(callback.message, db_session, user, state=state)
         return
 
     if action == "dislike":
@@ -690,7 +763,7 @@ async def on_matching_action(
                 payload={"target_user_id": target_user_id},
             )
         await callback.answer()
-        await _edit_to_next_candidate(callback.message, db_session, user, state=state)
+        await _advance_or_show_ad(callback.message, db_session, user, state=state)
         return
 
     if action == "skip":
@@ -699,11 +772,30 @@ async def on_matching_action(
         # (по умолчанию 2 дня, настраивается) — «отложить на потом».
         # Дизлайк же исключает навсегда.
         await callback.answer()
-        await _edit_to_next_candidate(callback.message, db_session, user, state=state)
+        await _advance_or_show_ad(callback.message, db_session, user, state=state)
         return
 
     # Неизвестный action — молча отвечаем, чтобы убрать спиннер.
     await callback.answer()
+
+
+@router.callback_query(AdSkipCb.filter())
+async def on_ad_skip(
+    callback: CallbackQuery,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+    bot: Bot,
+) -> None:
+    """«Не интересно» под рекламой — убираем кнопки рекламы и показываем след. анкету."""
+    await callback.answer()
+    if callback.message is None:
+        return
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except TelegramAPIError as exc:  # pragma: no cover — telegram-сеть
+        logger.warning("ads: failed to strip ad kb: {}", exc)
+    await _show_next_candidate(callback.message, db_session, bot, user, state=state)
 
 
 # --------------------------- undo (Premium) ---------------------------

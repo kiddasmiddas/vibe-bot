@@ -36,6 +36,19 @@ class AdminPromoStates(StatesGroup):
     ask_schedule = State()
 
 
+class AdminAdsRotationStates(StatesGroup):
+    # Последовательный конструктор добавления креатива авто-рекламы.
+    ask_text = State()
+    ask_media = State()
+    ask_button = State()
+    ask_button_label = State()
+    # Редактирование отдельных полей существующего креатива.
+    edit_text = State()
+    edit_media = State()
+    edit_button = State()
+    edit_button_label = State()
+
+
 class AdminDictStates(StatesGroup):
     ask_code = State()
     ask_title = State()

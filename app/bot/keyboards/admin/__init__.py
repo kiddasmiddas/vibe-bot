@@ -42,6 +42,12 @@ class AdminPromoCb(CallbackData, prefix="adm_promo"):
     promo_id: int = 0
 
 
+class AdRotationCb(CallbackData, prefix="adm_adrot"):
+    # action: menu|add|delete_pick|delete|open|edit_text|edit_media|edit_button|btn_premium|btn_none
+    action: str
+    ad_id: int = 0
+
+
 class AdminDictCb(CallbackData, prefix="adm_dict"):
     action: str  # fandoms|interests|vibes|cats|reasons|add|edit|deactivate|activate|open
     model: str = ""  # fandom|interest|vibe|creator_category|complaint_reason

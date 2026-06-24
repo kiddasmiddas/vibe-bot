@@ -37,6 +37,7 @@ from app.texts.admin import (
     PROMO_BTN_CREATE,
     PROMO_BTN_CREATE_ANNOUNCEMENT,
     PROMO_BTN_LIST,
+    PROMO_BTN_ROTATION,
     PROMO_BTN_STATUS,
     PROMO_CREATE_ASK_MEDIA,
     PROMO_CREATE_ASK_SCHEDULE,
@@ -68,8 +69,10 @@ async def cb_promo_menu(callback: CallbackQuery, user: User) -> None:
     from aiogram.utils.keyboard import InlineKeyboardBuilder
 
     from app.bot.keyboards.admin import AdminPromoCb as PC
+    from app.bot.keyboards.admin import AdRotationCb
 
     b = InlineKeyboardBuilder()
+    b.button(text=PROMO_BTN_ROTATION, callback_data=AdRotationCb(action="menu"))
     b.button(text=PROMO_BTN_CREATE, callback_data=PC(action="create"))
     b.button(text=PROMO_BTN_CREATE_ANNOUNCEMENT, callback_data=PC(action="announcement_create"))
     b.button(text=PROMO_BTN_LIST, callback_data=PC(action="list"))

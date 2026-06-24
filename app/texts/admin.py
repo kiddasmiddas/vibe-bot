@@ -165,10 +165,11 @@ PREMIUM_GRANTED = "Premium выдан пользователю #{user_id} до {
 PREMIUM_REVOKED = "Premium отозван у пользователя #{user_id}."
 
 # --- Реклама (PromoPost) ---
-PROMO_MENU = "Управление рассылками"
+PROMO_MENU = "Реклама и рассылки"
 PROMO_BTN_CREATE = "Создать рассылку"
 PROMO_BTN_CREATE_ANNOUNCEMENT = "Создать объявление"
 PROMO_BTN_LIST = "Список рассылок"
+PROMO_BTN_ROTATION = "🔄 Ротация рекламы"
 PROMO_CREATE_ASK_TEXT = "Введите текст рассылки:"
 PROMO_CREATE_ASK_MEDIA = "Прикрепите медиа (фото/видео) или отправьте /skip:"
 PROMO_CREATE_ASK_SEGMENT = "Выберите аудиторию:"
