@@ -40,7 +40,7 @@ def _preview(ad: AdRotationPost) -> str:
         t = " ".join(ad.text.split())
         return (t[:30] + "…") if len(t) > 30 else t
     if ad.media_file_id:
-        return "🖼 фото"
+        return "🎞 медиа" if ad.media_type in ("video", "animation") else "🖼 фото"
     return texts.PREVIEW_EMPTY
 
 
@@ -78,8 +78,15 @@ def _card_kb(ad_id: int):  # type: ignore[no-untyped-def]
     return b.as_markup()
 
 
-async def _send_card(message: Message, ad: AdRotationPost) -> None:
-    """Отправляет карточку креатива (с медиа, если есть) + клавиатуру действий."""
+async def _send_card(message: Message, ad: AdRotationPost | None) -> None:
+    """Отправляет карточку креатива (с медиа, если есть) + клавиатуру действий.
+
+    `ad is None` — креатив исчез (например, удалён другим админом между открытием
+    редактора и сохранением): показываем «не найдено» вместо падения.
+    """
+    if ad is None:
+        await message.answer(texts.NOT_FOUND, reply_markup=admin_back_home_kb())
+        return
     text = _card_text(ad)
     kb = _card_kb(ad.id)
     if ad.media_file_id and ad.media_type:

@@ -71,11 +71,11 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["created_by_admin_id"], ["users.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
     )
-    # Индекс под round-robin выбор (по last_shown_at, NULLs первыми) и пагинацию.
-    op.create_index(
-        "ix_ad_rotation_posts_rotation",
-        "ad_rotation_posts",
-        ["last_shown_at", "id"],
+    # Индекс под round-robin выбор pick_next: ORDER BY last_shown_at NULLS FIRST, id.
+    # Явный NULLS FIRST — иначе B-tree (по умолчанию NULLS LAST) не подходит запросу.
+    op.execute(
+        "CREATE INDEX ix_ad_rotation_posts_rotation "
+        "ON ad_rotation_posts (last_shown_at ASC NULLS FIRST, id ASC)"
     )
     # Сид настройки частоты показа (идемпотентно).
     op.get_bind().execute(
@@ -93,5 +93,5 @@ def downgrade() -> None:
         sa.text("DELETE FROM app_settings WHERE key = :key"),
         {"key": SETTING_KEY},
     )
-    op.drop_index("ix_ad_rotation_posts_rotation", table_name="ad_rotation_posts")
+    op.execute("DROP INDEX IF EXISTS ix_ad_rotation_posts_rotation")
     op.drop_table("ad_rotation_posts")

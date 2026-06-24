@@ -53,8 +53,9 @@ class AdsRotationService:
         key = _COUNTER_KEY.format(user_id=user_id)
         try:
             count = await self._redis.incr(key)
-            if count == 1:
-                await self._redis.expire(key, _COUNTER_TTL_SECONDS)
+            # Скользящий TTL: продлеваем на каждом показе, чтобы у активных юзеров
+            # счётчик не сбрасывался посреди цикла, а у неактивных ключ истекал.
+            await self._redis.expire(key, _COUNTER_TTL_SECONDS)
         except Exception as exc:
             logger.warning("ads rotation: redis counter error, skipping ad: {}", exc)
             return None

@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+from html import escape as _html_escape
+
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, StateFilter
@@ -461,31 +463,41 @@ async def _maybe_pick_ad(db_session: AsyncSession, user: User) -> AdRotationPost
     return await service.tick_and_pick(user.id, is_premium=has_premium_access(user))
 
 
-async def _show_ad(message: Message, ad: AdRotationPost) -> None:
-    """Показать рекламу-«воротца»: гасим кнопки текущей карточки и шлём креатив.
+async def _show_ad(message: Message, ad: AdRotationPost) -> bool:
+    """Показать рекламу-«воротца» новым сообщением. Возвращает True при успехе.
 
+    Текст рекламы экранируется (бот в HTML-режиме) — произвольный текст админа не
+    должен ломать разметку. Отправка обёрнута в try/except: битый file_id или кривой
+    текст не должны «вешать» матчинг — вызывающий показывает следующую анкету.
     Следующая анкета НЕ показывается здесь — пользователь сам жмёт «Не интересно».
     """
-    try:
-        await message.edit_reply_markup(reply_markup=None)
-    except TelegramAPIError as exc:  # pragma: no cover — telegram-сеть
-        logger.warning("ads: failed to strip candidate card kb: {}", exc)
-
     kb = ad_kb(
         button_label=ad.button_label,
         button_target=ad.button_target,
         button_url=ad.button_url,
     )
-    if ad.media_file_id and ad.media_type:
-        caption = truncate_caption(ad.text) if ad.text else None
-        if ad.media_type == "photo":
-            await message.answer_photo(ad.media_file_id, caption=caption, reply_markup=kb)
-        elif ad.media_type == "video":
-            await message.answer_video(ad.media_file_id, caption=caption, reply_markup=kb)
+    try:
+        if ad.media_file_id and ad.media_type:
+            # truncate ДО escape — чтобы не разрезать HTML-сущность пополам.
+            caption = _html_escape(truncate_caption(ad.text)) if ad.text else None
+            if ad.media_type == "photo":
+                await message.answer_photo(ad.media_file_id, caption=caption, reply_markup=kb)
+            elif ad.media_type == "video":
+                await message.answer_video(ad.media_file_id, caption=caption, reply_markup=kb)
+            else:
+                await message.answer_animation(ad.media_file_id, caption=caption, reply_markup=kb)
         else:
-            await message.answer_animation(ad.media_file_id, caption=caption, reply_markup=kb)
-    else:
-        await message.answer(ad.text or "", reply_markup=kb)
+            await message.answer(_html_escape(ad.text or ""), reply_markup=kb)
+    except TelegramAPIError as exc:
+        logger.warning("ads: failed to send ad {}: {}", ad.id, exc)
+        return False
+
+    # Кнопки исходной карточки гасим только после успешного показа рекламы.
+    try:
+        await message.edit_reply_markup(reply_markup=None)
+    except TelegramAPIError as exc:  # pragma: no cover — telegram-сеть
+        logger.warning("ads: failed to strip candidate card kb: {}", exc)
+    return True
 
 
 async def _advance_or_show_ad(
@@ -498,11 +510,11 @@ async def _advance_or_show_ad(
     """После действия над анкетой: показать рекламу (если пора) ИЛИ следующую анкету.
 
     Реклама показывается не-премиум пользователю после каждой N-й анкеты. Если
-    реклама не выпала — обычное поведение (карточка редактируется на следующую).
+    реклама не выпала ИЛИ её не удалось отправить — обычное поведение (карточка
+    редактируется на следующую анкету), чтобы пользователь не застрял.
     """
     ad = await _maybe_pick_ad(db_session, user)
-    if ad is not None:
-        await _show_ad(message, ad)
+    if ad is not None and await _show_ad(message, ad):
         return
     await _edit_to_next_candidate(message, db_session, user, state=state)
 

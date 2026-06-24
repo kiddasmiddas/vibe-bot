@@ -37,7 +37,9 @@ class AdsRotationRepository:
     async def count(self) -> int:
         return (await self._session.execute(select(func.count(AdRotationPost.id)))).scalar_one()
 
-    async def update_fields(self, ad_id: int, **fields: Any) -> AdRotationPost:
+    async def update_fields(self, ad_id: int, **fields: Any) -> AdRotationPost | None:
+        """Обновить поля креатива. Возвращает None, если креатив уже удалён
+        (например, другим админом между открытием редактора и сохранением)."""
         if fields:
             await self._session.execute(
                 update(AdRotationPost).where(AdRotationPost.id == ad_id).values(**fields)
@@ -45,7 +47,7 @@ class AdsRotationRepository:
             await self._session.flush()
         post = await self._session.get(AdRotationPost, ad_id)
         if post is None:
-            raise ValueError(f"AdRotationPost {ad_id} not found")
+            return None
         await self._session.refresh(post)
         return post
 
@@ -61,8 +63,13 @@ class AdsRotationRepository:
         """Выбрать следующий креатив по кругу и отметить показ.
 
         Round-robin: наименее недавно показанный (`last_shown_at` NULLS FIRST), при
-        равенстве — по `id`. Инкрементит `shown_count` и ставит `last_shown_at=now()`.
+        равенстве — по `id`. Инкрементит `shown_count` и ставит `last_shown_at`.
         Возвращает выбранный креатив или `None`, если пул пуст.
+
+        Best-effort при конкуренции: SELECT и UPDATE — отдельные statement без
+        блокировки, поэтому два одновременных запроса могут выбрать один креатив
+        (он покажется дважды, следующий по кругу пропустится). Для админ-курируемого
+        пула на текущих масштабах приемлемо; при высокой нагрузке — FOR UPDATE SKIP LOCKED.
         """
         ad_id = (
             await self._session.execute(
