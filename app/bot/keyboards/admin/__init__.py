@@ -148,6 +148,13 @@ def admin_back_home_kb() -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+# Общий раздел «Настройки» (сырые ключ-значение, англ. названия) временно СКРЫТ от
+# клиента — он перегружен и непонятен. Планируется как отдельная платная услуга.
+# Вернуть в меню = поставить True (одна строка, без других правок). Частота показа
+# рекламы при этом доступна отдельной кнопкой в разделе «Реклама → Ротация рекламы».
+_SHOW_GENERAL_SETTINGS = False
+
+
 def admin_main_menu_kb() -> InlineKeyboardMarkup:
     from app.texts.admin import (
         ADMIN_MENU_BTN_ADS,
@@ -173,7 +180,8 @@ def admin_main_menu_kb() -> InlineKeyboardMarkup:
     b.button(text=ADMIN_MENU_BTN_PREMIUM, callback_data=AdminMenuCb(action="premium"))
     b.button(text=ADMIN_MENU_BTN_ADS, callback_data=AdminMenuCb(action="ads"))
     b.button(text=ADMIN_MENU_BTN_DICTS, callback_data=AdminMenuCb(action="dicts"))
-    b.button(text=ADMIN_MENU_BTN_SETTINGS, callback_data=AdminMenuCb(action="settings"))
+    if _SHOW_GENERAL_SETTINGS:
+        b.button(text=ADMIN_MENU_BTN_SETTINGS, callback_data=AdminMenuCb(action="settings"))
     b.button(text=ADMIN_MENU_BTN_REVIEW, callback_data=AdminMenuCb(action="review"))
     b.button(text=ADMIN_MENU_BTN_STOPWORDS, callback_data=AdminMenuCb(action="stopwords"))
     b.button(text=ADMIN_MENU_BTN_ANALYTICS, callback_data=AdminMenuCb(action="analytics"))
