@@ -47,6 +47,8 @@ class AdminAdsRotationStates(StatesGroup):
     edit_media = State()
     edit_button = State()
     edit_button_label = State()
+    # Частота показа рекламы (ads_rotation_every_n).
+    ask_frequency = State()
 
 
 class AdminDictStates(StatesGroup):

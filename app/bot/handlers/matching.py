@@ -519,6 +519,25 @@ async def _advance_or_show_ad(
     await _edit_to_next_candidate(message, db_session, user, state=state)
 
 
+async def _advance_fresh_or_show_ad(
+    message: Message,
+    db_session: AsyncSession,
+    bot: Bot,
+    user: User,
+    *,
+    state: FSMContext | None,
+) -> None:
+    """Как `_advance_or_show_ad`, но следующая анкета шлётся НОВЫМ сообщением.
+
+    Для путей, где нет карточки-кандидата для in-place редактирования (завершение
+    суперлайка): тоже считаем это взаимодействием с анкетой → счётчик рекламы +1.
+    """
+    ad = await _maybe_pick_ad(db_session, user)
+    if ad is not None and await _show_ad(message, ad):
+        return
+    await _show_next_candidate(message, db_session, bot, user, state=state)
+
+
 async def _try_add_dislike(
     db_session: AsyncSession,
     *,
@@ -1028,4 +1047,5 @@ async def on_superlike_message(
 
     await state.clear()
     await message.answer(texts.SUPERLIKE_SENT)
-    await _show_next_candidate(message, db_session, bot, user, state=state)
+    # Суперлайк — тоже взаимодействие с анкетой → считается в счётчике рекламы.
+    await _advance_fresh_or_show_ad(message, db_session, bot, user, state=state)

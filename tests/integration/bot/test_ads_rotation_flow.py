@@ -12,7 +12,11 @@ from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.bot.handlers import matching as matching_module
-from app.bot.handlers.matching import on_matching_action
+from app.bot.handlers.matching import (
+    _advance_fresh_or_show_ad,
+    on_ad_skip,
+    on_matching_action,
+)
 from app.bot.keyboards.matching import MatchingActionCb
 from app.db.repositories.ads_rotation_repo import AdsRotationRepository
 from app.db.repositories.settings_repo import SettingsRepository
@@ -108,3 +112,49 @@ async def test_premium_does_not_see_ad(db_session, monkeypatch) -> None:
 
     answered = [c.args[0] for c in message.answer.await_args_list if c.args]
     assert "РЕКЛАМА-ТЕКСТ" not in answered
+
+
+@pytest.mark.asyncio
+async def test_ad_skip_does_not_increment_counter(monkeypatch) -> None:
+    """«Не интересно» под рекламой НЕ дёргает счётчик (не приближает след. рекламу)."""
+    pick_spy = AsyncMock()
+    monkeypatch.setattr(matching_module, "_maybe_pick_ad", pick_spy)
+    monkeypatch.setattr(matching_module, "_show_next_candidate", AsyncMock())
+
+    message = _mock_message()
+    callback = _mock_callback(message)
+    state = _fsm(MemoryStorage(), 12345)
+    await on_ad_skip(callback, state, MagicMock(), MagicMock(), MagicMock())
+
+    pick_spy.assert_not_awaited()  # счётчик не трогался
+    matching_module._show_next_candidate.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_advance_fresh_shows_ad_then_stops(monkeypatch) -> None:
+    """Суперлайк-путь: если выпала реклама — показываем её и НЕ листаем дальше сами."""
+    monkeypatch.setattr(matching_module, "_maybe_pick_ad", AsyncMock(return_value=MagicMock()))
+    monkeypatch.setattr(matching_module, "_show_ad", AsyncMock(return_value=True))
+    monkeypatch.setattr(matching_module, "_show_next_candidate", AsyncMock())
+
+    await _advance_fresh_or_show_ad(
+        _mock_message(), MagicMock(), MagicMock(), MagicMock(), state=None
+    )
+
+    matching_module._show_ad.assert_awaited_once()
+    matching_module._show_next_candidate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_advance_fresh_no_ad_shows_next(monkeypatch) -> None:
+    """Суперлайк-путь: рекламы нет → показываем следующую анкету новым сообщением."""
+    monkeypatch.setattr(matching_module, "_maybe_pick_ad", AsyncMock(return_value=None))
+    monkeypatch.setattr(matching_module, "_show_ad", AsyncMock(return_value=True))
+    monkeypatch.setattr(matching_module, "_show_next_candidate", AsyncMock())
+
+    await _advance_fresh_or_show_ad(
+        _mock_message(), MagicMock(), MagicMock(), MagicMock(), state=None
+    )
+
+    matching_module._show_ad.assert_not_awaited()
+    matching_module._show_next_candidate.assert_awaited_once()

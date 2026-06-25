@@ -23,10 +23,19 @@ from app.bot.states.admin import AdminAdsRotationStates
 from app.db.models.ads_rotation import AdRotationPost
 from app.db.models.user import User
 from app.db.repositories.ads_rotation_repo import AdsRotationRepository
+from app.db.repositories.settings_repo import SettingsRepository
 from app.texts import ads_rotation as texts
 from app.texts.admin import ADMIN_MENU_BTN_BACK
 
 router = Router(name="admin.ads_rotation")
+
+_SETTING_EVERY_N = "ads_rotation_every_n"
+_DEFAULT_EVERY_N = 10
+
+
+async def _current_every_n(db_session: AsyncSession) -> int:
+    val = await SettingsRepository(db_session).get_int(_SETTING_EVERY_N)
+    return val if val is not None and val > 0 else _DEFAULT_EVERY_N
 
 
 # ---------------------------------------------------------------------------
@@ -136,13 +145,55 @@ async def cb_ads_menu(
     b.button(text=texts.BTN_ADD, callback_data=AdRotationCb(action="add"))
     if ads:
         b.button(text=texts.BTN_DELETE, callback_data=AdRotationCb(action="delete_pick"))
+    b.button(text=texts.BTN_FREQUENCY, callback_data=AdRotationCb(action="freq"))
     b.button(text=ADMIN_MENU_BTN_BACK, callback_data=AdminMenuCb(action="ads"))
     b.adjust(1)
+    every_n = await _current_every_n(db_session)
     await show_screen(
         callback.message,
-        text=texts.MENU if ads else texts.MENU_EMPTY,
+        text=(texts.MENU if ads else texts.MENU_EMPTY).format(n=every_n),
         reply_markup=b.as_markup(),
     )
+
+
+@router.callback_query(AdRotationCb.filter(F.action == "freq"))
+async def cb_ads_freq(
+    callback: CallbackQuery, user: User, db_session: AsyncSession, state: FSMContext
+) -> None:
+    if not is_admin(user):
+        await callback.answer()
+        return
+    every_n = await _current_every_n(db_session)
+    await state.set_state(AdminAdsRotationStates.ask_frequency)
+    await callback.answer()
+    if callback.message:
+        await callback.message.answer(
+            texts.FREQ_SCREEN.format(n=every_n), reply_markup=admin_back_home_kb()
+        )
+
+
+@router.message(StateFilter(AdminAdsRotationStates.ask_frequency), F.text)
+async def on_ads_frequency(
+    message: Message, state: FSMContext, user: User, db_session: AsyncSession
+) -> None:
+    if not is_admin(user):
+        await state.clear()
+        return
+    raw = (message.text or "").strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        await message.answer(texts.FREQ_INVALID, reply_markup=admin_back_home_kb())
+        return
+    if n < 1:
+        await message.answer(texts.FREQ_INVALID, reply_markup=admin_back_home_kb())
+        return
+    await SettingsRepository(db_session).set(_SETTING_EVERY_N, str(n), by_user_id=user.id)
+    await state.clear()
+    logger.info("admin {} set {}={}", user.id, _SETTING_EVERY_N, n)
+    b = InlineKeyboardBuilder()
+    b.button(text=texts.BTN_BACK_TO_POOL, callback_data=AdRotationCb(action="menu"))
+    await message.answer(texts.FREQ_UPDATED.format(n=n), reply_markup=b.as_markup())
 
 
 @router.callback_query(AdRotationCb.filter(F.action == "open"))

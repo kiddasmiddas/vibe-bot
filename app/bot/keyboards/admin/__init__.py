@@ -43,7 +43,7 @@ class AdminPromoCb(CallbackData, prefix="adm_promo"):
 
 
 class AdRotationCb(CallbackData, prefix="adm_adrot"):
-    # action: menu|add|delete_pick|delete|open|edit_text|edit_media|edit_button|btn_premium|btn_none
+    # action: menu|add|delete_pick|delete|open|edit_text|edit_media|edit_button|freq
     action: str
     ad_id: int = 0
 
