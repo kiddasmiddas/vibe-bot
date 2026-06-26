@@ -1,8 +1,10 @@
 """Раздел «Ротация рекламы»: пул авто-рекламы для ленты анкет.
 
-Конструктор: текст → фото (/skip) → кнопка перехода (ссылка | /premium | /skip)
-→ подпись кнопки. Список пула с открытием/редактированием/удалением. Креативы
-от админа — доверенный источник, контент-модерацию не проходят (как promo_posts).
+Конструктор: текст → фото (/skip) → выбор кнопки тремя inline-кнопками
+(Реклама спонсора → ссылка | Реклама премиума | Без кнопки) → подпись кнопки.
+Список пула с открытием/редактированием/удалением. Креативы от админа —
+доверенный источник, контент-модерацию не проходят (как promo_posts).
+Команду /premium НЕ используем — её перехватывает глобальный premium-хэндлер.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ from app.db.models.user import User
 from app.db.repositories.ads_rotation_repo import AdsRotationRepository
 from app.db.repositories.settings_repo import SettingsRepository
 from app.texts import ads_rotation as texts
-from app.texts.admin import ADMIN_MENU_BTN_BACK
+from app.texts.admin import ADMIN_MENU_BTN_BACK, ADMIN_MENU_BTN_HOME
 
 router = Router(name="admin.ads_rotation")
 
@@ -356,30 +358,89 @@ async def on_ads_media_skip(message: Message, state: FSMContext, user: User) -> 
     await _go_ask_button(message, state)
 
 
+def _ask_button_kb():  # type: ignore[no-untyped-def]
+    """Три кнопки выбора, что под рекламой: спонсор / премиум / без кнопки."""
+    b = InlineKeyboardBuilder()
+    b.button(text=texts.BTN_TARGET_SPONSOR, callback_data=AdRotationCb(action="btn_url"))
+    b.button(text=texts.BTN_TARGET_PREMIUM, callback_data=AdRotationCb(action="btn_premium"))
+    b.button(text=texts.BTN_TARGET_NONE, callback_data=AdRotationCb(action="btn_none"))
+    b.button(text=ADMIN_MENU_BTN_HOME, callback_data=AdminMenuCb(action="menu"))
+    b.adjust(1)
+    return b.as_markup()
+
+
 async def _go_ask_button(message: Message, state: FSMContext) -> None:
     await state.set_state(AdminAdsRotationStates.ask_button)
-    await message.answer(texts.ASK_BUTTON, reply_markup=admin_back_home_kb())
+    await message.answer(texts.ASK_BUTTON, reply_markup=_ask_button_kb())
 
 
-@router.message(StateFilter(AdminAdsRotationStates.ask_button), Command("premium"))
-async def on_ads_button_premium(message: Message, state: FSMContext, user: User) -> None:
+# --- Выбор цели кнопки тремя inline-кнопками (одни и те же в create- и edit-флоу;
+#     роутимся по текущему состоянию). /premium как команду НЕ используем — её
+#     перехватывает глобальный premium-хэндлер. ---
+
+
+@router.callback_query(AdRotationCb.filter(F.action == "btn_url"))
+async def cb_ads_btn_url(callback: CallbackQuery, user: User, state: FSMContext) -> None:
     if not is_admin(user):
-        await state.clear()
+        await callback.answer()
+        return
+    cur = await state.get_state()
+    if cur not in (
+        AdminAdsRotationStates.ask_button.state,
+        AdminAdsRotationStates.edit_button.state,
+    ):
+        await callback.answer()
+        return
+    # Состояние не меняем — ссылку поймает текстовый хэндлер ask_button/edit_button.
+    await callback.answer()
+    if callback.message:
+        await callback.message.answer(texts.ASK_BUTTON_URL, reply_markup=admin_back_home_kb())
+
+
+@router.callback_query(AdRotationCb.filter(F.action == "btn_premium"))
+async def cb_ads_btn_premium(callback: CallbackQuery, user: User, state: FSMContext) -> None:
+    if not is_admin(user):
+        await callback.answer()
+        return
+    cur = await state.get_state()
+    if cur == AdminAdsRotationStates.ask_button.state:
+        nxt = AdminAdsRotationStates.ask_button_label
+    elif cur == AdminAdsRotationStates.edit_button.state:
+        nxt = AdminAdsRotationStates.edit_button_label
+    else:
+        await callback.answer()
         return
     await state.update_data(ads_button_target="premium", ads_button_url=None)
-    await state.set_state(AdminAdsRotationStates.ask_button_label)
-    await message.answer(texts.ASK_BUTTON_LABEL, reply_markup=admin_back_home_kb())
+    await state.set_state(nxt)
+    await callback.answer()
+    if callback.message:
+        await callback.message.answer(texts.ASK_BUTTON_LABEL, reply_markup=admin_back_home_kb())
 
 
-@router.message(StateFilter(AdminAdsRotationStates.ask_button), Command("skip"))
-async def on_ads_button_skip(
-    message: Message, state: FSMContext, user: User, db_session: AsyncSession
+@router.callback_query(AdRotationCb.filter(F.action == "btn_none"))
+async def cb_ads_btn_none(
+    callback: CallbackQuery, user: User, state: FSMContext, db_session: AsyncSession
 ) -> None:
     if not is_admin(user):
-        await state.clear()
+        await callback.answer()
         return
-    await state.update_data(ads_button_target=None, ads_button_url=None, ads_button_label=None)
-    await _finalize_create(message, state, user, db_session)
+    cur = await state.get_state()
+    await callback.answer()
+    if callback.message is None:
+        return
+    if cur == AdminAdsRotationStates.ask_button.state:
+        await state.update_data(ads_button_target=None, ads_button_url=None, ads_button_label=None)
+        await _finalize_create(callback.message, state, user, db_session)
+    elif cur == AdminAdsRotationStates.edit_button.state:
+        data = await state.get_data()
+        ad_id = data.get("ads_edit_id")
+        await state.clear()
+        if ad_id is None:
+            return
+        repo = AdsRotationRepository(db_session)
+        ad = await repo.update_fields(ad_id, button_label=None, button_target=None, button_url=None)
+        await callback.message.answer(texts.UPDATED.format(id=ad_id))
+        await _send_card(callback.message, ad)
 
 
 @router.message(StateFilter(AdminAdsRotationStates.ask_button), F.text)
@@ -570,35 +631,7 @@ async def cb_ads_edit_button(
     await state.set_state(AdminAdsRotationStates.edit_button)
     await callback.answer()
     if callback.message:
-        await callback.message.answer(texts.ASK_BUTTON, reply_markup=admin_back_home_kb())
-
-
-@router.message(StateFilter(AdminAdsRotationStates.edit_button), Command("premium"))
-async def on_ads_edit_button_premium(message: Message, state: FSMContext, user: User) -> None:
-    if not is_admin(user):
-        await state.clear()
-        return
-    await state.update_data(ads_button_target="premium", ads_button_url=None)
-    await state.set_state(AdminAdsRotationStates.edit_button_label)
-    await message.answer(texts.ASK_BUTTON_LABEL, reply_markup=admin_back_home_kb())
-
-
-@router.message(StateFilter(AdminAdsRotationStates.edit_button), Command("skip"))
-async def on_ads_edit_button_clear(
-    message: Message, state: FSMContext, user: User, db_session: AsyncSession
-) -> None:
-    if not is_admin(user):
-        await state.clear()
-        return
-    data = await state.get_data()
-    ad_id = data.get("ads_edit_id")
-    await state.clear()
-    if ad_id is None:
-        return
-    repo = AdsRotationRepository(db_session)
-    ad = await repo.update_fields(ad_id, button_label=None, button_target=None, button_url=None)
-    await message.answer(texts.UPDATED.format(id=ad_id))
-    await _send_card(message, ad)
+        await callback.message.answer(texts.ASK_BUTTON, reply_markup=_ask_button_kb())
 
 
 @router.message(StateFilter(AdminAdsRotationStates.edit_button), F.text)
