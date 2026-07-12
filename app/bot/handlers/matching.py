@@ -782,8 +782,9 @@ async def on_matching_action(
                 other_user_id=target_user_id,
                 initial_message=outcome.initial_message,
             )
-        elif outcome.like_recorded:
-            # Мэтча нет — уведомляем получателя лайка (агрегация в throttle).
+        elif outcome.like_recorded and outcome.match_id is None:
+            # Мэтча нет (и не найден после гонки create_match — иначе мэтч-пуш
+            # уже ушёл из выигравшей ветки) — уведомляем получателя лайка.
             await notify_like_received(bot, db_session, to_user_id=target_user_id, kind="like")
         await callback.answer()
         await _advance_or_show_ad(callback.message, db_session, user, state=state)
@@ -1048,8 +1049,8 @@ async def on_superlike_message(
             other_user_id=int(target_user_id),
             initial_message=outcome.initial_message,
         )
-    elif outcome.like_recorded:
-        # Суперлайк без мэтча — мгновенный пуш получателю (вне кулдауна лайков).
+    elif outcome.like_recorded and outcome.match_id is None:
+        # Суперлайк без мэтча (см. гонку create_match выше) — мгновенный пуш.
         await notify_like_received(
             bot,
             db_session,

@@ -62,10 +62,9 @@ class NotificationThrottle:
     async def _register(self, cd_key: str, pending_key: str, cooldown_seconds: int) -> int | None:
         """Общая механика: None → молчим; N ≥ 1 → слать пуш про N событий.
 
-        SET NX на cd-ключ атомарно «занимает» окно тишины. Забор pending —
-        GET + DELETE без транзакции: гонка двух одновременных событий в худшем
-        случае потеряет/задвоит единицу в счётчике пуша, что для уведомлений
-        приемлемо и не стоит усложнения.
+        SET NX на cd-ключ атомарно «занимает» окно тишины, GETDEL атомарно
+        забирает накопленный счётчик (конкурентный INCR либо попадёт в этот
+        пуш, либо останется в ключе для следующего — не теряется).
         """
         try:
             acquired = await self._redis.set(cd_key, 1, ex=cooldown_seconds, nx=True)
@@ -73,9 +72,7 @@ class NotificationThrottle:
                 await self._redis.incr(pending_key)
                 await self._redis.expire(pending_key, _PENDING_TTL_SECONDS)
                 return None
-            pending_raw = await self._redis.get(pending_key)
-            if pending_raw is not None:
-                await self._redis.delete(pending_key)
+            pending_raw = await self._redis.getdel(pending_key)
             pending = int(pending_raw) if pending_raw else 0
             return pending + 1
         except Exception as exc:

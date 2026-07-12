@@ -383,9 +383,10 @@ async def cb_incoming_like_action(
                 other_user_id=liker_user_id,
                 initial_message=outcome.initial_message,
             )
-        elif outcome.like_recorded:
+        elif outcome.like_recorded and outcome.match_id is None:
             # Ответный лайк почти всегда даёт мэтч; ветка на случай, когда
             # исходный лайк к этому моменту исчез (например, анкета удалена).
+            # match_id is None отсекает гонку create_match (мэтч-пуш уже ушёл).
             await notify_like_received(bot, db_session, to_user_id=liker_user_id, kind="like")
     elif action == "dislike":
         wrote = await _try_add_dislike(db_session, from_user_id=user.id, to_user_id=liker_user_id)

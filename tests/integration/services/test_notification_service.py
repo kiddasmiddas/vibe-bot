@@ -50,6 +50,10 @@ class _FakeRedis:
         self._check()
         self._store.pop(key, None)
 
+    async def getdel(self, key: str) -> str | None:
+        self._check()
+        return self._store.pop(key, None)
+
     async def incr(self, key: str) -> int:
         self._check()
         cur = int(self._store.get(key, "0")) + 1

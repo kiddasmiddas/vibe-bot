@@ -37,6 +37,9 @@ class _FakeRedis:
     async def delete(self, key: str) -> None:
         self._store.pop(key, None)
 
+    async def getdel(self, key: str) -> str | None:
+        return self._store.pop(key, None)
+
     async def incr(self, key: str) -> int:
         cur = int(self._store.get(key, "0")) + 1
         self._store[key] = str(cur)
