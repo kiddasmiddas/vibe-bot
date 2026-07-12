@@ -237,10 +237,11 @@ class FeedRepository:
         cursor: tuple[datetime, int] | None,
         limit: int,
     ) -> tuple[list[FeedComment], tuple[datetime, int] | None]:
-        """Активные комментарии поста с курсорной пагинацией.
+        """Активные КОРНЕВЫЕ комментарии поста с курсорной пагинацией.
 
         ORDER BY created_at ASC, id ASC — старые комментарии первыми, новые внизу
-        (как в чатах). Возвращает только status='active'.
+        (как в чатах). Возвращает только status='active' и parent_comment_id IS NULL;
+        ответы к корневым отдаёт `list_replies_for_comments` (вложенно в API).
 
         Курсор кодирует (created_at, id) последнего возвращённого комментария.
         Следующая страница — это комментарии, которые ХРОНОЛОГИЧЕСКИ ПОЗЖЕ курсора:
@@ -249,6 +250,7 @@ class FeedRepository:
         base_filter = and_(
             FeedComment.post_id == post_id,
             FeedComment.status == "active",
+            FeedComment.parent_comment_id.is_(None),
         )
 
         if cursor is not None:
@@ -280,6 +282,30 @@ class FeedRepository:
             last = comments[-1]
             next_cursor = (last.created_at, last.id)
         return comments, next_cursor
+
+    async def list_replies_for_comments(
+        self, comment_ids: list[int]
+    ) -> dict[int, list[FeedComment]]:
+        """Активные ответы для набора корневых комментариев: {root_id: [ответы]}.
+
+        Внутри ветки — хронологический порядок (created_at ASC, id ASC).
+        Ответы не пагинируются: веток глубины 1 и их немного (2-3 на пост).
+        """
+        if not comment_ids:
+            return {}
+        stmt = (
+            select(FeedComment)
+            .where(
+                FeedComment.parent_comment_id.in_(comment_ids),
+                FeedComment.status == "active",
+            )
+            .order_by(FeedComment.created_at, FeedComment.id)
+        )
+        replies = (await self._session.execute(stmt)).scalars().all()
+        grouped: dict[int, list[FeedComment]] = {}
+        for reply in replies:
+            grouped.setdefault(reply.parent_comment_id, []).append(reply)  # type: ignore[arg-type]
+        return grouped
 
     async def set_comment_status(self, comment_id: int, status: str) -> None:
         """Сменить статус комментария (active / deleted_by_user / deleted_by_moderator)."""

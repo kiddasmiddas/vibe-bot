@@ -281,3 +281,74 @@ async def test_comment_push_media_only_preview(
     )
 
     assert texts.COMMENT_PREVIEW_MEDIA in bot.send_message.await_args.kwargs["text"]
+
+
+@pytest.mark.asyncio
+async def test_reply_pushes_both_replied_and_post_author(
+    db_session, notif_redis, patched_session_factory
+) -> None:
+    """Ответ на чужой коммент: пуш автору коммента + пуш автору поста."""
+    post_id, _author_id = await _make_post(db_session, author_tg=97101)
+    alice = await UserRepository(db_session).create(telegram_id=97102)
+    bob = await UserRepository(db_session).create(telegram_id=97103)
+    bot = _mock_bot()
+
+    await notify_post_commented_bg(
+        bot,
+        post_id=post_id,
+        commenter_user_id=bob.id,
+        preview_text="отвечаю",
+        has_media=False,
+        replied_author_user_id=alice.id,
+    )
+
+    assert bot.send_message.await_count == 2
+    sent = {c.kwargs["chat_id"]: c.kwargs["text"] for c in bot.send_message.await_args_list}
+    assert "Тебе ответили" in sent[97102]  # Алисе — пуш об ответе
+    assert "Новый комментарий" in sent[97101]  # автору поста — обычный
+
+
+@pytest.mark.asyncio
+async def test_reply_to_post_author_sends_single_push(
+    db_session, notif_redis, patched_session_factory
+) -> None:
+    """Ответили на коммент самого автора поста → один пуш (об ответе), не два."""
+    post_id, author_id = await _make_post(db_session, author_tg=97104)
+    bob = await UserRepository(db_session).create(telegram_id=97105)
+    bot = _mock_bot()
+
+    await notify_post_commented_bg(
+        bot,
+        post_id=post_id,
+        commenter_user_id=bob.id,
+        preview_text="ответ автору",
+        has_media=False,
+        replied_author_user_id=author_id,
+    )
+
+    assert bot.send_message.await_count == 1
+    kwargs = bot.send_message.await_args.kwargs
+    assert kwargs["chat_id"] == 97104
+    assert "Тебе ответили" in kwargs["text"]
+
+
+@pytest.mark.asyncio
+async def test_self_reply_pushes_only_post_author(
+    db_session, notif_redis, patched_session_factory
+) -> None:
+    """Ответ на СВОЙ коммент: пуша об ответе нет, автору поста — обычный пуш."""
+    post_id, _ = await _make_post(db_session, author_tg=97106)
+    bob = await UserRepository(db_session).create(telegram_id=97107)
+    bot = _mock_bot()
+
+    await notify_post_commented_bg(
+        bot,
+        post_id=post_id,
+        commenter_user_id=bob.id,
+        preview_text="сам себе в ветку",
+        has_media=False,
+        replied_author_user_id=bob.id,
+    )
+
+    assert bot.send_message.await_count == 1
+    assert "Новый комментарий" in bot.send_message.await_args.kwargs["text"]

@@ -353,15 +353,21 @@ async def list_comments(
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> CommentsResponse:
-    """Комментарии поста с курсорной пагинацией (только status='active')."""
+    """Корневые комментарии поста с курсорной пагинацией (только status='active').
+
+    Ответы (ветки глубины 1) приходят вложенными в `replies` своего корневого
+    комментария и не участвуют в пагинации.
+    """
     decoded_cursor = _decode_cursor(cursor) if cursor else None
     repo = FeedRepository(db)
-    comments, next_raw = await repo.list_comments_cursor(
+    roots, next_raw = await repo.list_comments_cursor(
         post_id=post_id, cursor=decoded_cursor, limit=limit
     )
+    replies_map = await repo.list_replies_for_comments([c.id for c in roots])
+    all_comments = list(roots) + [r for replies in replies_map.values() for r in replies]
 
     # FeedComment не хранит author_name — загружаем из Profile по author_user_id.
-    author_ids = list({c.author_user_id for c in comments})
+    author_ids = list({c.author_user_id for c in all_comments})
     profile_repo = ProfileRepository(db)
     author_names: dict[int, str] = {}
     for aid in author_ids:
@@ -371,19 +377,23 @@ async def list_comments(
     # media_file_id храним как Telegram file_id, но фронту нужен готовый HTTP-URL
     # для <img src> — резолвим так же, как медиа постов (resolve_file_url).
     # Без этого в src попадал сырой file_id и фото комментария не отображалось.
-    items: list[CommentItem] = []
-    for c in comments:
+    async def _to_item(c, replies: list[CommentItem]) -> CommentItem:  # type: ignore[no-untyped-def]
         media_url = await resolve_file_url(c.media_file_id) if c.media_file_id else None
-        items.append(
-            CommentItem(
-                id=c.id,
-                author_name=author_names.get(c.author_user_id, "Unknown"),
-                text=c.text,
-                media_type=c.media_type,
-                media_file_id=media_url,
-                created_at=c.created_at.isoformat(),
-            )
+        return CommentItem(
+            id=c.id,
+            author_name=author_names.get(c.author_user_id, "Unknown"),
+            text=c.text,
+            media_type=c.media_type,
+            media_file_id=media_url,
+            created_at=c.created_at.isoformat(),
+            parent_id=c.parent_comment_id,
+            replies=replies,
         )
+
+    items: list[CommentItem] = []
+    for root in roots:
+        nested = [await _to_item(r, []) for r in replies_map.get(root.id, [])]
+        items.append(await _to_item(root, nested))
 
     next_cursor: str | None = None
     if next_raw is not None:
@@ -556,24 +566,26 @@ async def create_comment(
 
     svc = _build_feed_service(db)
     try:
-        comment_id = await svc.create_comment(
+        comment_id, reply_to_author_user_id = await svc.create_comment(
             user=user,
             profile=profile,
             post_id=post_id,
             text=body.text,
             media_type=body.media_type,
             media_file_id=body.media_file_id,
+            parent_id=body.parent_id,
         )
     except FeedServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
-    # Пуш автору поста — фоном, ответ Mini App не ждёт Telegram.
+    # Пуши (тому, кому ответили + автору поста) — фоном, ответ Mini App не ждёт.
     spawn_notify_post_commented(
         _get_upload_bot(),
         post_id=post_id,
         commenter_user_id=user.id,
         preview_text=body.text,
         has_media=body.media_file_id is not None,
+        replied_author_user_id=reply_to_author_user_id,
     )
 
     return CreateCommentResponse(id=comment_id)

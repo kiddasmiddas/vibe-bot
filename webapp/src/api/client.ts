@@ -215,6 +215,7 @@ export interface CreateCommentBody {
   text?: string
   media_type?: string
   media_file_id?: string
+  parent_id?: number
 }
 
 export async function createFeedComment(

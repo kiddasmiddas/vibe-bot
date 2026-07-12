@@ -102,6 +102,7 @@ class FeedComment(Base):
             name="feed_comment_text_or_media",
         ),
         Index("ix_feed_comments_post_id_created_at", "post_id", "created_at"),
+        Index("ix_feed_comments_parent_comment_id", "parent_comment_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -114,6 +115,13 @@ class FeedComment(Base):
         Integer,
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
+    )
+    # Ветки глубины 1: у ответа здесь ВСЕГДА id корневого комментария поста
+    # (ответ на ответ сервис прикрепляет к тому же корню, как в VK).
+    parent_comment_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("feed_comments.id", ondelete="CASCADE"),
+        nullable=True,
     )
     text: Mapped[str | None] = mapped_column(Text, nullable=True)
     media_type: Mapped[str | None] = mapped_column(String(16), nullable=True)

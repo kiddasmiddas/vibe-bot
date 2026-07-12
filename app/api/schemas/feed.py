@@ -103,6 +103,8 @@ class CreateCommentRequest(BaseModel):
     text: str | None = None
     media_type: MediaTypeIn | None = None
     media_file_id: str | None = None
+    # id комментария, на который отвечают (ветки глубины 1).
+    parent_id: int | None = None
 
 
 class CreateCommentResponse(BaseModel):
@@ -116,6 +118,9 @@ class CommentItem(BaseModel):
     media_type: str | None
     media_file_id: str | None
     created_at: str  # ISO 8601
+    parent_id: int | None = None
+    # Ответы ветки (глубина 1); у самих ответов список всегда пуст.
+    replies: list[CommentItem] = []
 
     model_config = {"from_attributes": True}
 

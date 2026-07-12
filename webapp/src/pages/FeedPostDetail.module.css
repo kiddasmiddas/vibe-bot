@@ -452,3 +452,64 @@
   opacity: 0.4;
   cursor: default;
 }
+
+/* --- Ветки комментариев (глубина 1) --- */
+.replyList {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0 0 0 12px;
+  border-left: 2px solid color-mix(in srgb, var(--tg-theme-hint-color) 35%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.replyItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 6px;
+}
+
+.replyBtn {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tg-theme-link-color, #2481cc);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Плашка «В ответ …» над формой */
+.replyChip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background-color: var(--tg-theme-secondary-bg-color);
+  font-size: 13px;
+}
+
+.replyChipText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--tg-theme-text-color);
+}
+
+.replyChipCancel {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  font-size: 14px;
+  color: var(--tg-theme-hint-color);
+  cursor: pointer;
+  padding: 2px 6px;
+  -webkit-tap-highlight-color: transparent;
+}

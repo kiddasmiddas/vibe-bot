@@ -199,8 +199,16 @@ class FeedService:
         text: str | None,
         media_type: str | None,
         media_file_id: str | None,
-    ) -> int:
-        """Создать комментарий. Возвращает id.
+        parent_id: int | None = None,
+    ) -> tuple[int, int | None]:
+        """Создать комментарий или ответ (parent_id — комментарий, на который отвечают).
+
+        Возвращает (comment_id, reply_to_author_user_id): второй элемент —
+        автор комментария, на который ответили (для пуша «вам ответили»),
+        None для корневого комментария.
+
+        Глубина веток = 1: ответ на ответ прикрепляется к корню той же ветки,
+        но адресат пуша — автор именно того комментария, на который тапнули.
 
         Raises FeedServiceError при нарушении правил.
         """
@@ -214,6 +222,21 @@ class FeedService:
             or (post.expires_at is not None and post.expires_at <= now)
         ):
             raise FeedServiceError(404, "Post not found")
+
+        # Ответ: родитель должен существовать, быть активным и из этого же поста.
+        reply_to_author_user_id: int | None = None
+        root_parent_id: int | None = None
+        if parent_id is not None:
+            parent = await self._feed_repo.get_comment(parent_id)
+            if parent is None or parent.status != "active" or parent.post_id != post_id:
+                raise FeedServiceError(404, "Parent comment not found")
+            reply_to_author_user_id = parent.author_user_id
+            # Глубина 1: у ответа родителем становится корень ветки.
+            root_parent_id = parent.parent_comment_id or parent.id
+            if root_parent_id != parent.id:
+                root = await self._feed_repo.get_comment(root_parent_id)
+                if root is None or root.status != "active":
+                    raise FeedServiceError(404, "Parent comment not found")
 
         # Активное ограничение
         restriction = await self._feed_repo.get_active_restriction(user.id, now)
@@ -264,6 +287,7 @@ class FeedService:
         comment = await self._feed_repo.create_comment(
             post_id=post_id,
             author_user_id=user.id,
+            parent_comment_id=root_parent_id,
             text=text if has_text else None,
             media_type=media_type if has_media else None,
             media_file_id=media_file_id if has_media else None,
@@ -273,9 +297,9 @@ class FeedService:
         await self._log_event(
             user.id,
             EventType.FEED_COMMENT_CREATED,
-            {"comment_id": comment.id, "post_id": post_id},
+            {"comment_id": comment.id, "post_id": post_id, "parent_id": root_parent_id},
         )
-        return comment.id
+        return comment.id, reply_to_author_user_id
 
     # ------------------------------------------------------------------
     # Reactions

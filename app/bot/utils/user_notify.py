@@ -109,41 +109,62 @@ async def notify_post_commented_bg(
     commenter_user_id: int,
     preview_text: str | None,
     has_media: bool,
+    replied_author_user_id: int | None = None,
 ) -> None:
-    """Фоновый пуш автору поста о новом комментарии (вызов из API-процесса).
+    """Фоновые пуши о новом комментарии (вызов из API-процесса).
 
-    Без агрегации: один пуш на каждый комментарий сразу по факту
-    (решение клиента 2026-07; выключается тумблером в /admin → Уведомления).
+    Без агрегации: разовые пуши сразу по факту (решение клиента 2026-07;
+    выключаются тумблером в /admin → Уведомления). Адресаты:
+    - автор комментария, на который ответили (`replied_author_user_id`) —
+      «↩️ Тебе ответили»;
+    - автор поста — «💬 Новый комментарий».
+    Себе пуши не шлются; если ответили на комментарий самого автора поста —
+    уходит ТОЛЬКО пуш об ответе (не два).
     """
     try:
-        async with async_session_factory() as session:
-            post = await FeedRepository(session).get_by_id(post_id)
-            if post is None or post.author_user_id is None:
-                return
-            if post.author_user_id == commenter_user_id:
-                return
-            author = await UserRepository(session).get_by_id(post.author_user_id)
-            if author is None or author.is_banned:
-                return
-            author_chat_id = author.telegram_id
-            if not await _build_throttle(session).comments_enabled():
-                return
-
         preview = (preview_text or "").strip() or (texts.COMMENT_PREVIEW_MEDIA if has_media else "")
         if len(preview) > _COMMENT_PREVIEW_MAX:
             preview = preview[: _COMMENT_PREVIEW_MAX - 1] + "…"
-        text = texts.COMMENT_PUSH_ONE.format(preview=_html_escape(preview))
+        preview = _html_escape(preview)
 
-        # У API-шного Bot нет DefaultBotProperties → parse_mode задаём явно,
-        # иначе экранированные сущности уйдут пользователю литералом.
-        await bot.send_message(
-            chat_id=author_chat_id,
-            text=text,
-            reply_markup=_open_post_kb(post_id),
-            parse_mode="HTML",
-        )
-    except TelegramAPIError as exc:
-        logger.warning("comment push for post_id={} failed: {}", post_id, exc)
+        targets: list[tuple[int, str]] = []  # (chat_id, text)
+        async with async_session_factory() as session:
+            if not await _build_throttle(session).comments_enabled():
+                return
+            post = await FeedRepository(session).get_by_id(post_id)
+            if post is None:
+                return
+            user_repo = UserRepository(session)
+
+            if replied_author_user_id is not None and replied_author_user_id != commenter_user_id:
+                replied = await user_repo.get_by_id(replied_author_user_id)
+                if replied is not None and not replied.is_banned:
+                    targets.append((replied.telegram_id, texts.REPLY_PUSH.format(preview=preview)))
+
+            post_author_id = post.author_user_id
+            if (
+                post_author_id is not None
+                and post_author_id != commenter_user_id
+                and post_author_id != replied_author_user_id
+            ):
+                author = await user_repo.get_by_id(post_author_id)
+                if author is not None and not author.is_banned:
+                    targets.append(
+                        (author.telegram_id, texts.COMMENT_PUSH_ONE.format(preview=preview))
+                    )
+
+        for chat_id, text in targets:
+            try:
+                # У API-шного Bot нет DefaultBotProperties → parse_mode задаём явно,
+                # иначе экранированные сущности уйдут пользователю литералом.
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    reply_markup=_open_post_kb(post_id),
+                    parse_mode="HTML",
+                )
+            except TelegramAPIError as exc:
+                logger.warning("comment push for post_id={} failed: {}", post_id, exc)
     except Exception as exc:
         logger.error("comment push for post_id={} crashed: {}", post_id, exc)
 
@@ -160,6 +181,7 @@ def spawn_notify_post_commented(
     commenter_user_id: int,
     preview_text: str | None,
     has_media: bool,
+    replied_author_user_id: int | None = None,
 ) -> None:
     """Fire-and-forget обёртка для вызова из API-хэндлера (ответ не ждёт пуша)."""
     task = asyncio.create_task(
@@ -169,6 +191,7 @@ def spawn_notify_post_commented(
             commenter_user_id=commenter_user_id,
             preview_text=preview_text,
             has_media=has_media,
+            replied_author_user_id=replied_author_user_id,
         )
     )
     _bg_tasks.add(task)

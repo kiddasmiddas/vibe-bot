@@ -84,6 +84,42 @@ function formatCommentDate(dateStr: string): string {
   }
 }
 
+interface CommentBodyProps {
+  comment: FeedComment
+  onReply: (comment: FeedComment) => void
+}
+
+/** Тело комментария (корневого или ответа): шапка, текст/медиа, «Ответить». */
+function CommentBody({ comment, onReply }: CommentBodyProps) {
+  return (
+    <>
+      <div className={styles.commentHeader}>
+        <span className={styles.commentAuthor}>{comment.author_name}</span>
+        <span className={styles.commentDate}>{formatCommentDate(comment.created_at)}</span>
+      </div>
+      {comment.text && <p className={styles.commentText}>{comment.text}</p>}
+      {comment.media_file_id && (
+        <img
+          src={comment.media_file_id}
+          alt="Медиа в комментарии"
+          className={styles.commentMediaImg}
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.display = 'none'
+          }}
+        />
+      )}
+      <button
+        type="button"
+        className={styles.replyBtn}
+        onClick={() => onReply(comment)}
+        aria-label={`Ответить на комментарий ${comment.author_name}`}
+      >
+        Ответить
+      </button>
+    </>
+  )
+}
+
 export function FeedPostDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -105,7 +141,17 @@ export function FeedPostDetail() {
   const [commentSubmitState, setCommentSubmitState] = useState<CommentSubmitState>('idle')
   const [commentSubmitError, setCommentSubmitError] = useState<string | null>(null)
   const [attachedMedia, setAttachedMedia] = useState<AttachedCommentMedia | null>(null)
+  // Ответ на комментарий: id того, на который тапнули, + ник для плашки.
+  const [replyTo, setReplyTo] = useState<{ id: number; author: string } | null>(null)
   const commentFileInputRef = useRef<HTMLInputElement | null>(null)
+  const commentInputRef = useRef<HTMLTextAreaElement | null>(null)
+
+  const handleReplyClick = useCallback((comment: FeedComment) => {
+    setReplyTo({ id: comment.id, author: comment.author_name })
+    // Подставляем ник в начало пустого поля — видно, кому отвечаешь.
+    setCommentText((prev) => (prev.trim() ? prev : `${comment.author_name}, `))
+    commentInputRef.current?.focus()
+  }, [])
 
   useEffect(() => {
     showBackButton(() => navigate(-1))
@@ -231,9 +277,13 @@ export function FeedPostDetail() {
         ? { media_type: attachedMedia.media_type, media_file_id: attachedMedia.file_id }
         : { text: commentText.trim() }
 
-      await createFeedComment(postId, body)
+      await createFeedComment(
+        postId,
+        replyTo ? { ...body, parent_id: replyTo.id } : body,
+      )
 
       setCommentText('')
+      setReplyTo(null)
       if (attachedMedia) {
         URL.revokeObjectURL(attachedMedia.previewUrl)
         setAttachedMedia(null)
@@ -400,20 +450,15 @@ export function FeedPostDetail() {
           <ul className={styles.commentsList} aria-label="Список комментариев">
             {comments.map((comment) => (
               <li key={comment.id} className={styles.commentItem}>
-                <div className={styles.commentHeader}>
-                  <span className={styles.commentAuthor}>{comment.author_name}</span>
-                  <span className={styles.commentDate}>{formatCommentDate(comment.created_at)}</span>
-                </div>
-                {comment.text && <p className={styles.commentText}>{comment.text}</p>}
-                {comment.media_file_id && (
-                  <img
-                    src={comment.media_file_id}
-                    alt="Медиа в комментарии"
-                    className={styles.commentMediaImg}
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).style.display = 'none'
-                    }}
-                  />
+                <CommentBody comment={comment} onReply={handleReplyClick} />
+                {comment.replies && comment.replies.length > 0 && (
+                  <ul className={styles.replyList} aria-label="Ответы">
+                    {comment.replies.map((reply) => (
+                      <li key={reply.id} className={styles.replyItem}>
+                        <CommentBody comment={reply} onReply={handleReplyClick} />
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </li>
             ))}
@@ -454,6 +499,21 @@ export function FeedPostDetail() {
                 {commentSubmitError}
               </p>
             )}
+
+          {/* Плашка «В ответ …» */}
+          {replyTo && (
+            <div className={styles.replyChip}>
+              <span className={styles.replyChipText}>↩️ В ответ {replyTo.author}</span>
+              <button
+                type="button"
+                className={styles.replyChipCancel}
+                onClick={() => setReplyTo(null)}
+                aria-label="Отменить ответ"
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
           {/* Превью прикреплённого фото */}
           {attachedMedia && (
@@ -500,6 +560,7 @@ export function FeedPostDetail() {
 
             <textarea
               id="comment-text"
+              ref={commentInputRef}
               className={styles.commentInput}
               value={commentText}
               onChange={(e) => {

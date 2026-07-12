@@ -49,6 +49,8 @@ export interface FeedComment {
   media_type: string | null
   media_file_id: string | null
   created_at: string
+  parent_id: number | null
+  replies: FeedComment[]
 }
 
 export interface FeedCommentsResponse {

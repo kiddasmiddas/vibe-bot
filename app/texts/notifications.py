@@ -12,6 +12,7 @@ BTN_VIEW_LIKES = "👀 Посмотреть"
 
 # --- Пуши пользователю: комментарии в Ленте ---
 COMMENT_PUSH_ONE = "💬 Новый комментарий к твоему посту:\n«{preview}»"
+REPLY_PUSH = "↩️ Тебе ответили на комментарий:\n«{preview}»"
 COMMENT_PREVIEW_MEDIA = "📷 фото"
 BTN_OPEN_POST = "Открыть пост"
 
