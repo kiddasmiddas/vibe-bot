@@ -94,14 +94,17 @@ def render_profile_card(
     header = f"{_html_escape(profile.nickname)}, {profile.age}"
 
     # own_vibe=None — вайб ещё подбирает модератор («Вайб по фото»).
+    # Название вайба — справочник, но экранируем как любой текст из БД.
     if own_vibe is not None:
-        own_vibe_str = texts.RENDER_VIBE_NUMBER.format(number=own_vibe.number)
+        own_vibe_str = texts.RENDER_VIBE_NUMBER.format(
+            number=own_vibe.number, title=_html_escape(own_vibe.title)
+        )
     else:
         own_vibe_str = texts.RENDER_VIBE_PENDING
 
     if desired_vibes:
         desired_vibe_str = ", ".join(
-            texts.RENDER_VIBE_NUMBER.format(number=v.number)
+            texts.RENDER_VIBE_NUMBER.format(number=v.number, title=_html_escape(v.title))
             for v in sorted(desired_vibes, key=lambda v: v.number)
         )
     else:

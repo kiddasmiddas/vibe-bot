@@ -5,8 +5,8 @@
 
 После рефакторинга вайбов:
 - параметр `desired_vibe: Vibe | None` заменён на `desired_vibes: list[Vibe]`.
-- own_vibe отображается как "№N" (number), не по title.
-- desired_vibes выводит "№N, №M" или "любой" если список пуст.
+- own_vibe отображается как "№N · Title" (номер + название, запрос клиента 2026-07).
+- desired_vibes выводит "№N · A, №M · B" или "любой" если список пуст.
 """
 
 from __future__ import annotations
@@ -77,14 +77,11 @@ def test_render_profile_card_text_contains_all_fields() -> None:
     assert "21" in text
     assert "Чай, манга, дождь" in text
     assert "Девушка" in text
-    # own_vibe отображается как "№5" (number), title не показывается
-    assert "№5" in text
-    # desired_vibes отображаются как "№10, №12"
-    assert "№10" in text
-    assert "№12" in text
-    # Titles вайбов больше не показываются в карточке
-    assert "Аниместетик" not in text
-    assert "Тубоманка" not in text
+    # own_vibe отображается как "№5 · Аниместетик" (номер + название)
+    assert "№5 · Аниместетик" in text
+    # desired_vibes отображаются как "№10 · Тубоманка, №12 · Y2K"
+    assert "№10 · Тубоманка" in text
+    assert "№12 · Y2K" in text
     assert "JJK" in text
     assert "Naruto" in text
     assert "AOT" in text
@@ -134,6 +131,27 @@ def test_render_profile_card_handles_empty_collections() -> None:
     assert "—" in rendered.text
     # desired_vibes пустой → выводится "любой"
     assert "любой" in rendered.text
+
+
+def test_render_profile_card_escapes_vibe_title() -> None:
+    """Название вайба из БД экранируется (глобальный parse_mode=HTML)."""
+    profile = _profile()
+    gender = _dict_entity(1, "Парень")
+    own_vibe = _dict_entity(2, "<b>Злой & хитрый</b>", number=5)
+
+    rendered = render_profile_card(
+        profile,  # type: ignore[arg-type]
+        gender=gender,  # type: ignore[arg-type]
+        own_vibe=own_vibe,  # type: ignore[arg-type]
+        desired_vibes=[],
+        fandoms=[],
+        desired_fandoms=[],
+        interests=[],
+        looking_for_genders=[],
+    )
+
+    assert "&lt;b&gt;Злой &amp; хитрый&lt;/b&gt;" in rendered.text
+    assert "<b>Злой" not in rendered.text
 
 
 def test_render_profile_card_desired_vibes_sorted_by_number() -> None:
