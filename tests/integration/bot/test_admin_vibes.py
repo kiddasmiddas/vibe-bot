@@ -138,21 +138,49 @@ async def test_non_admin_cannot_rename(db_session) -> None:
 
 
 @pytest.mark.asyncio
-async def test_page_legend_reflects_rename(db_session) -> None:
-    """Легенда страницы показывает живые названия (переименование видно сразу)."""
-    from app.bot.utils.vibe_picker import page_legend
+async def test_picker_buttons_show_titles(db_session) -> None:
+    """Кнопки юзерского пикера — названия вайбов, переименование видно сразу."""
+    from app.bot.keyboards.registration import vibe_picker_kb
+    from app.bot.utils.vibe_picker import fetch_page_titles
     from app.db.models.dictionaries import Vibe
 
     repo = DictionaryRepository(db_session)
     vibe = await repo.get_vibe_by_number(2)
-    await repo.update_item(Vibe, vibe.id, title="Готика <3")
+    await repo.update_item(Vibe, vibe.id, title="Готика")
 
-    legend = await page_legend(db_session, 0)
-    assert "2 — Готика &lt;3" in legend  # экранировано для HTML
-    assert legend.count("\n") == 8  # 9 вайбов страницы
+    titles = await fetch_page_titles(db_session, 0)
+    assert titles[2] == "Готика"
 
-    # Выключенный вайб уходит из юзерской легенды, в админской остаётся с ❌.
+    kb = vibe_picker_kb(
+        role="own", page=0, total_pages=4, done_text="Готово", any_text="Любой", titles=titles
+    )
+    button_texts = [btn.text for row in kb.inline_keyboard for btn in row]
+    assert "Готика" in button_texts
+    assert "2" not in button_texts
+
+    # Выключенный вайб пропадает из titles → кнопка-фолбэк с цифрой (как раньше).
     await repo.set_active(Vibe, vibe.id, is_active=False)
-    assert "Готика" not in await page_legend(db_session, 0)
-    admin_legend = await page_legend(db_session, 0, include_inactive=True)
-    assert "2 — Готика &lt;3 ❌" in admin_legend
+    titles2 = await fetch_page_titles(db_session, 0)
+    assert 2 not in titles2
+    kb2 = vibe_picker_kb(
+        role="own", page=0, total_pages=4, done_text="Готово", any_text="Любой", titles=titles2
+    )
+    button_texts2 = [btn.text for row in kb2.inline_keyboard for btn in row]
+    assert "2" in button_texts2 and "Готика" not in button_texts2
+
+
+@pytest.mark.asyncio
+async def test_admin_page_labels_have_numbers_and_inactive_mark(db_session) -> None:
+    """Кнопки админ-пикера: «N · Title», выключенные помечены ❌."""
+    from app.bot.handlers.admin.vibes import _page_labels
+    from app.db.models.dictionaries import Vibe
+
+    repo = DictionaryRepository(db_session)
+    vibe = await repo.get_vibe_by_number(3)
+    await repo.update_item(Vibe, vibe.id, title="Сцена")
+    labels = await _page_labels(db_session, 0)
+    assert labels[3] == "3 · Сцена"
+
+    await repo.set_active(Vibe, vibe.id, is_active=False)
+    labels2 = await _page_labels(db_session, 0)
+    assert labels2[3] == "❌ 3 · Сцена"

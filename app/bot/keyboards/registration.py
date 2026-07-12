@@ -181,6 +181,7 @@ def vibe_picker_kb(
     show_vibe_by_photo: bool = False,
     vibe_by_photo_text: str = "",
     vibe_by_photo_origin: str = "registration",
+    titles: dict[int, str] | None = None,
 ) -> InlineKeyboardMarkup:
     """Сетка 3×3 inline-кнопок выбора вайба с навигацией.
 
@@ -188,6 +189,10 @@ def vibe_picker_kb(
     Для multi-режима (desired): галочки у выбранных, ряды «Готово» и «Любой вайб».
     Если ``show_vibe_by_photo`` — внизу добавляется кнопка «Вайб по фото»
     (Premium-фича). Кнопка отдаёт VibeByPhotoStartCb(origin=...).
+
+    ``titles`` — {number: title} из справочника: на кнопках показываются
+    названия вайбов (клиент убрал номера, 2026-07). Для номера без названия
+    (вайб выключен) — фолбэк на цифру, как раньше.
     """
     is_multi = role == "desired"
     first_number = page * page_size + 1
@@ -195,12 +200,11 @@ def vibe_picker_kb(
 
     builder = InlineKeyboardBuilder()
 
-    # 3×3 кнопки номеров.
+    # 3×3 кнопки вайбов (название из справочника, фолбэк — номер).
     for n in numbers:
+        label = titles.get(n, str(n)) if titles else str(n)
         if is_multi and selected_numbers and n in selected_numbers:
-            label = f"✅ {n}"
-        else:
-            label = str(n)
+            label = f"✅ {label}"
         builder.button(
             text=label,
             callback_data=VibePickCb(role=role, page=page, number=n),

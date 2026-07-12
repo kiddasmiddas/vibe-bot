@@ -31,7 +31,6 @@ from app.bot.utils.vibe_picker import (
     TOTAL_PAGES,
     fetch_page_image_file_id,
     numbers_for_page,
-    page_legend,
 )
 from app.db.models.dictionaries import Vibe
 from app.db.models.user import User
@@ -70,10 +69,13 @@ def _cover_number(page: int) -> int:
     return page * PAGE_SIZE + 1
 
 
-def _page_kb(page: int) -> InlineKeyboardMarkup:
+def _page_kb(page: int, labels: dict[int, str]) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for n in numbers_for_page(page):
-        b.button(text=str(n), callback_data=AdminVibesCb(action="open", page=page, number=n))
+        b.button(
+            text=labels.get(n, str(n)),
+            callback_data=AdminVibesCb(action="open", page=page, number=n),
+        )
     # Ряд навигации: ‹ N/4 › (крайние позиции — заглушки, как в юзерском пикере).
     if page > 0:
         b.button(text="‹", callback_data=AdminVibesCb(action="page", page=page - 1))
@@ -118,19 +120,29 @@ def _card_text(vibe: Vibe) -> str:
     return VIBES_CARD.format(number=vibe.number, title=escape(vibe.title), status=status)
 
 
+async def _page_labels(db_session: AsyncSession, page: int) -> dict[int, str]:
+    """Подписи кнопок админ-пикера: «N · Title» (клиент сверяется по номерам),
+    выключенные — с ❌. Фолбэк на цифру, если вайба с таким номером нет."""
+    numbers = set(numbers_for_page(page))
+    vibes = await DictionaryRepository(db_session).list_all(Vibe, limit=100)
+    labels: dict[int, str] = {}
+    for v in vibes:
+        if v.number in numbers:
+            prefix = "" if v.is_active else "❌ "
+            labels[v.number] = f"{prefix}{v.number} · {v.title}"
+    return labels
+
+
 async def _render_page(message: Message, db_session: AsyncSession, page: int) -> None:
     page = _clamp_page(page)
     image_file_id = await fetch_page_image_file_id(db_session, page)
     caption = VIBES_PAGE_CAPTION.format(page=page + 1, total=TOTAL_PAGES)
-    legend = await page_legend(db_session, page, include_inactive=True)
-    if legend:
-        caption += f"\n\n{legend}"
     if image_file_id is None:
         caption += VIBES_PAGE_NO_IMAGE
     await show_screen(
         message,
         text=caption,
-        reply_markup=_page_kb(page),
+        reply_markup=_page_kb(page, await _page_labels(db_session, page)),
         media_file_id=image_file_id,
         media_type="photo" if image_file_id else None,
     )
