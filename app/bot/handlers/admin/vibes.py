@@ -31,6 +31,7 @@ from app.bot.utils.vibe_picker import (
     TOTAL_PAGES,
     fetch_page_image_file_id,
     numbers_for_page,
+    page_legend,
 )
 from app.db.models.dictionaries import Vibe
 from app.db.models.user import User
@@ -121,6 +122,9 @@ async def _render_page(message: Message, db_session: AsyncSession, page: int) ->
     page = _clamp_page(page)
     image_file_id = await fetch_page_image_file_id(db_session, page)
     caption = VIBES_PAGE_CAPTION.format(page=page + 1, total=TOTAL_PAGES)
+    legend = await page_legend(db_session, page, include_inactive=True)
+    if legend:
+        caption += f"\n\n{legend}"
     if image_file_id is None:
         caption += VIBES_PAGE_NO_IMAGE
     await show_screen(

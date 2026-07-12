@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from html import escape as _html_escape
+
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import InputMediaPhoto, Message
@@ -34,6 +36,34 @@ def numbers_for_page(page: int) -> list[int]:
 def page_for_number(number: int) -> int:
     """Возвращает номер страницы (0-based) для вайба с данным number."""
     return (number - 1) // PAGE_SIZE
+
+
+async def page_legend(
+    db_session: AsyncSession, page: int, *, include_inactive: bool = False
+) -> str:
+    """Строки «N — Title» для вайбов страницы (сортировка по номеру).
+
+    Названия берутся из справочника → переименование в /admin видно сразу.
+    Для админ-пикера include_inactive=True добавляет выключенные с пометкой ❌.
+    """
+    numbers = numbers_for_page(page)
+    stmt = select(Vibe).where(Vibe.number.in_(numbers)).order_by(Vibe.number)
+    vibes = (await db_session.execute(stmt)).scalars().all()
+    lines: list[str] = []
+    for v in vibes:
+        if not v.is_active and not include_inactive:
+            continue
+        line = texts.VIBE_LEGEND_LINE.format(number=v.number, title=_html_escape(v.title))
+        if not v.is_active:
+            line += " ❌"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+async def _page_caption(db_session: AsyncSession, role: str, page: int) -> str:
+    base = texts.ASK_OWN_VIBE_PICKER if role == "own" else texts.ASK_DESIRED_VIBE_PICKER
+    legend = await page_legend(db_session, page)
+    return f"{base}\n\n{legend}" if legend else base
 
 
 async def fetch_page_image_file_id(db_session: AsyncSession, page: int) -> str | None:
@@ -72,7 +102,7 @@ async def send_vibe_picker(
     ``show_vibe_by_photo`` показывает кнопку Premium-фичи «Вайб по фото».
     """
     image_file_id = await fetch_page_image_file_id(db_session, page)
-    caption_text = texts.ASK_OWN_VIBE_PICKER if role == "own" else texts.ASK_DESIRED_VIBE_PICKER
+    caption_text = await _page_caption(db_session, role, page)
     kb = vibe_picker_kb(
         role=role,
         page=page,
@@ -115,7 +145,7 @@ async def edit_vibe_picker(
     TelegramBadRequest при edit — логируем warning, не падаем.
     """
     new_image_file_id = await fetch_page_image_file_id(db_session, page)
-    caption_text = texts.ASK_OWN_VIBE_PICKER if role == "own" else texts.ASK_DESIRED_VIBE_PICKER
+    caption_text = await _page_caption(db_session, role, page)
     kb = vibe_picker_kb(
         role=role,
         page=page,

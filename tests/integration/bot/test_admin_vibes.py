@@ -135,3 +135,24 @@ async def test_non_admin_cannot_rename(db_session) -> None:
 
     assert (await DictionaryRepository(db_session).get_vibe_by_number(5)).title == before
     assert await state.get_state() is None
+
+
+@pytest.mark.asyncio
+async def test_page_legend_reflects_rename(db_session) -> None:
+    """Легенда страницы показывает живые названия (переименование видно сразу)."""
+    from app.bot.utils.vibe_picker import page_legend
+    from app.db.models.dictionaries import Vibe
+
+    repo = DictionaryRepository(db_session)
+    vibe = await repo.get_vibe_by_number(2)
+    await repo.update_item(Vibe, vibe.id, title="Готика <3")
+
+    legend = await page_legend(db_session, 0)
+    assert "2 — Готика &lt;3" in legend  # экранировано для HTML
+    assert legend.count("\n") == 8  # 9 вайбов страницы
+
+    # Выключенный вайб уходит из юзерской легенды, в админской остаётся с ❌.
+    await repo.set_active(Vibe, vibe.id, is_active=False)
+    assert "Готика" not in await page_legend(db_session, 0)
+    admin_legend = await page_legend(db_session, 0, include_inactive=True)
+    assert "2 — Готика &lt;3 ❌" in admin_legend
