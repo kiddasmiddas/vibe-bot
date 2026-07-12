@@ -139,12 +139,15 @@ async def notify_post_commented_bg(
 
             if replied_author_user_id is not None and replied_author_user_id != commenter_user_id:
                 replied = await user_repo.get_by_id(replied_author_user_id)
-                if (
-                    replied is not None
-                    and not replied.is_banned
-                    and await throttle.allow_comment_push(replied.id)
-                ):
-                    targets.append((replied.telegram_id, texts.REPLY_PUSH.format(preview=preview)))
+                if replied is not None and not replied.is_banned:
+                    if await throttle.allow_comment_push(replied.id):
+                        targets.append(
+                            (replied.telegram_id, texts.REPLY_PUSH.format(preview=preview))
+                        )
+                    else:
+                        logger.info(
+                            "reply push to user_id={} suppressed by burst guard", replied.id
+                        )
 
             post_author_id = post.author_user_id
             if (
@@ -153,14 +156,15 @@ async def notify_post_commented_bg(
                 and post_author_id != replied_author_user_id
             ):
                 author = await user_repo.get_by_id(post_author_id)
-                if (
-                    author is not None
-                    and not author.is_banned
-                    and await throttle.allow_comment_push(author.id)
-                ):
-                    targets.append(
-                        (author.telegram_id, texts.COMMENT_PUSH_ONE.format(preview=preview))
-                    )
+                if author is not None and not author.is_banned:
+                    if await throttle.allow_comment_push(author.id):
+                        targets.append(
+                            (author.telegram_id, texts.COMMENT_PUSH_ONE.format(preview=preview))
+                        )
+                    else:
+                        logger.info(
+                            "comment push to user_id={} suppressed by burst guard", author.id
+                        )
 
         for chat_id, text in targets:
             try:
