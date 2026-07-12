@@ -257,8 +257,8 @@ class TestRenderProfileEmptyDesiredVibes:
         )
         assert "любой" in rendered.text
 
-    def test_desired_vibes_with_items_renders_numbers(self) -> None:
-        """desired_vibes=[...] → карточка выводит номера вайбов."""
+    def test_desired_vibes_with_items_renders_titles(self) -> None:
+        """desired_vibes=[...] → карточка выводит названия вайбов (без номеров)."""
         profile = _profile(city=None)
         gender = _dict_entity(1, "Парень")
         own_vibe = _dict_entity(2, "Минималист")
@@ -276,8 +276,9 @@ class TestRenderProfileEmptyDesiredVibes:
             interests=[],
             looking_for_genders=[],
         )
-        # Теперь вайб отображается как "№3", не по title
-        assert "№3" in rendered.text
+        # Вайб отображается названием, без номера (клиент убрал номер, 2026-07).
+        assert "Криэйтор" in rendered.text
+        assert "№3" not in rendered.text
 
 
 # ---------------------------------------------------------------------------

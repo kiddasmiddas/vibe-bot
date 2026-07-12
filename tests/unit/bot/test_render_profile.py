@@ -5,8 +5,8 @@
 
 После рефакторинга вайбов:
 - параметр `desired_vibe: Vibe | None` заменён на `desired_vibes: list[Vibe]`.
-- own_vibe отображается как "№N · Title" (номер + название, запрос клиента 2026-07).
-- desired_vibes выводит "№N · A, №M · B" или "любой" если список пуст.
+- own_vibe отображается только названием "Title" (клиент убрал номер, 2026-07).
+- desired_vibes выводит "A, B" (сортировка по number) или "любой" если пусто.
 """
 
 from __future__ import annotations
@@ -77,11 +77,12 @@ def test_render_profile_card_text_contains_all_fields() -> None:
     assert "21" in text
     assert "Чай, манга, дождь" in text
     assert "Девушка" in text
-    # own_vibe отображается как "№5 · Аниместетик" (номер + название)
-    assert "№5 · Аниместетик" in text
-    # desired_vibes отображаются как "№10 · Тубоманка, №12 · Y2K"
-    assert "№10 · Тубоманка" in text
-    assert "№12 · Y2K" in text
+    # own_vibe отображается только названием, без номера
+    assert "Аниместетик" in text
+    # desired_vibes отображаются как "Тубоманка, Y2K"
+    assert "Тубоманка, Y2K" in text
+    assert "№5" not in text
+    assert "№10" not in text
     assert "JJK" in text
     assert "Naruto" in text
     assert "AOT" in text
@@ -175,5 +176,5 @@ def test_render_profile_card_desired_vibes_sorted_by_number() -> None:
     )
 
     text = rendered.text
-    # №3 должен быть раньше №7, №7 раньше №10.
-    assert text.index("№3") < text.index("№7") < text.index("№10")
+    # Порядок по number: Beta(3) раньше Gamma(7), Gamma раньше Alpha(10).
+    assert text.index("Beta") < text.index("Gamma") < text.index("Alpha")
