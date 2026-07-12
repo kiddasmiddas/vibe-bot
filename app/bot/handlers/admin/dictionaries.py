@@ -82,8 +82,10 @@ async def cb_dicts_menu(callback: CallbackQuery, user: User) -> None:
         await show_screen(callback.message, text=DICTS_MENU, reply_markup=dicts_menu_kb())
 
 
+# «vibes» здесь больше нет: раздел вайбов — пикер страниц (handlers/admin/vibes.py),
+# а не список сообщений. Старые open/edit-хэндлеры для model="vibe" неактивны из UI.
 @router.callback_query(
-    AdminDictCb.filter(F.action.in_({"fandoms", "interests", "vibes", "cats", "reasons"}))
+    AdminDictCb.filter(F.action.in_({"fandoms", "interests", "cats", "reasons"}))
 )
 async def cb_dict_list(
     callback: CallbackQuery,

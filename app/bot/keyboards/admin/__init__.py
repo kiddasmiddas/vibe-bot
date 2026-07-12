@@ -49,7 +49,19 @@ class AdRotationCb(CallbackData, prefix="adm_adrot"):
 
 
 class AdminNotifCb(CallbackData, prefix="adm_ntf"):
-    action: str  # like_freq|comment_freq
+    action: str  # like_freq|comment_toggle
+
+
+class AdminVibesCb(CallbackData, prefix="adm_vibes"):
+    """Раздел «Вайбы» в справочниках: пикер страниц как у пользователей.
+
+    action: page|open|rename|toggle|image|noop; page — 0-based страница (0..3),
+    number — номер вайба 1..36 (для open/rename/toggle).
+    """
+
+    action: str
+    page: int = 0
+    number: int = 0
 
 
 class AdminDictCb(CallbackData, prefix="adm_dict"):
@@ -499,7 +511,8 @@ def dicts_menu_kb() -> InlineKeyboardMarkup:
     b.button(
         text=DICTS_BTN_INTERESTS, callback_data=AdminDictCb(action="interests", model="interest")
     )
-    b.button(text=DICTS_BTN_VIBES, callback_data=AdminDictCb(action="vibes", model="vibe"))
+    # Вайбы — не списком, а пикером страниц с коллажами (см. handlers/admin/vibes.py).
+    b.button(text=DICTS_BTN_VIBES, callback_data=AdminVibesCb(action="page", page=0))
     b.button(
         text=DICTS_BTN_CREATOR_CATS,
         callback_data=AdminDictCb(action="cats", model="creator_category"),

@@ -206,6 +206,29 @@ PROMO_BTN_STATUS = "Посмотреть статус"
 
 # --- Справочники ---
 DICTS_BTN_ACTIONS = "Действия"
+
+# --- Справочники: раздел «Вайбы» (пикер страниц с коллажами) ---
+VIBES_PAGE_CAPTION = (
+    "🎨 <b>Вайбы</b> · стр. {page}/{total}\n\nНажмите номер вайба, чтобы открыть и переименовать."
+)
+VIBES_PAGE_NO_IMAGE = "\n\n⚠️ У этой страницы нет картинки-коллажа — загрузите её кнопкой ниже."
+VIBES_BTN_PAGE_IMAGE = "🖼 Заменить картинку страницы"
+VIBES_CARD = "🎨 <b>Вайб №{number}</b>\n\nНазвание: <b>{title}</b>\nСтатус: {status}"
+VIBES_STATUS_ACTIVE = "✅ активен"
+VIBES_STATUS_INACTIVE = "❌ выключен"
+VIBES_BTN_RENAME = "✏️ Переименовать"
+VIBES_BTN_DISABLE = "🚫 Выключить"
+VIBES_BTN_ENABLE = "✅ Включить"
+VIBES_BTN_BACK_TO_PAGE = "⬅️ К странице"
+VIBES_ASK_TITLE = "Пришлите новое название для вайба №{number} (сейчас: «{title}»)."
+VIBES_TITLE_EMPTY = "Название не может быть пустым. Пришлите текст."
+VIBES_TITLE_UPDATED = "✅ Вайб №{number} переименован: «{title}»."
+VIBES_ASK_IMAGE = (
+    "Пришлите новую картинку-коллаж для страницы {page}/{total} (вайбы {first}–{last})."
+)
+VIBES_IMAGE_NOT_PHOTO = "Нужно фото. Пришлите картинку-коллаж страницы."
+VIBES_IMAGE_UPDATED = "✅ Картинка страницы {page}/{total} обновлена."
+VIBES_NOT_FOUND = "Вайб №{number} не найден в справочнике."
 DICTS_ASK_NUMBER_INVALID = "Введите число."
 DICTS_ERROR_NO_SESSION = "Ошибка: нет db_session."
 DICTS_MENU = "Справочники"

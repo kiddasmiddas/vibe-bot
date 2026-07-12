@@ -52,9 +52,14 @@ class AdminAdsRotationStates(StatesGroup):
 
 
 class AdminNotifStates(StatesGroup):
-    # Кулдауны пуш-уведомлений (раздел «Уведомления»).
+    # Кулдаун лайк-пушей (раздел «Уведомления»); коммент-пуши — тумблер без FSM.
     ask_like_hours = State()
-    ask_comment_minutes = State()
+
+
+class AdminVibesStates(StatesGroup):
+    # Раздел «Вайбы»: переименование вайба и замена коллажа страницы.
+    ask_title = State()
+    ask_image = State()
 
 
 class AdminDictStates(StatesGroup):

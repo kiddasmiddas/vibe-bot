@@ -6,6 +6,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import Base
+from app.db.models.dictionaries import Vibe
 
 T = TypeVar("T", bound=Base)
 
@@ -44,6 +45,11 @@ class DictionaryRepository:
     async def get_by_code(self, model: type[T], code: str) -> T | None:
         stmt = select(model).where(model.code == code)  # type: ignore[attr-defined]
         return (await self._session.execute(stmt)).scalar_one_or_none()
+
+    async def get_vibe_by_number(self, number: int) -> Vibe | None:
+        """Вайб по клиентскому номеру 1..36 (admin-пикер вайбов)."""
+        stmt = select(Vibe).where(Vibe.number == number).limit(1)
+        return (await self._session.execute(stmt)).scalars().first()
 
     async def create(self, model: type[T], **fields: Any) -> T:
         """Создаёт запись справочника. Используется в admin CRUD (10.8)."""
