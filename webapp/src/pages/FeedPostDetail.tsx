@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   getFeedPost,
   getFeedComments,
@@ -123,6 +123,7 @@ function CommentBody({ comment, onReply }: CommentBodyProps) {
 export function FeedPostDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const { showBackButton, hideBackButton, currentUserId } = useTelegram()
 
   const [post, setPost] = useState<FeedPostDetailType | null>(null)
@@ -169,10 +170,20 @@ export function FeedPostDetail() {
     [attachedMedia],
   )
 
+  // «Назад»: при входе по диплинку (пуш «Открыть пост») эта страница — первая
+  // в истории (location.key === 'default'), navigate(-1) некуда — ведём в ленту.
+  const handleBack = useCallback(() => {
+    if (location.key === 'default') {
+      navigate('/feed', { replace: true })
+    } else {
+      navigate(-1)
+    }
+  }, [location.key, navigate])
+
   useEffect(() => {
-    showBackButton(() => navigate(-1))
+    showBackButton(handleBack)
     return () => hideBackButton()
-  }, [showBackButton, hideBackButton, navigate])
+  }, [showBackButton, hideBackButton, handleBack])
 
   const postId = id ? parseInt(id, 10) : NaN
 
@@ -361,7 +372,7 @@ export function FeedPostDetail() {
     <main className={styles.page}>
       <button
         className={styles.backButton}
-        onClick={() => navigate(-1)}
+        onClick={handleBack}
         aria-label="Назад в Ленту"
       >
         ← Назад
