@@ -29,6 +29,8 @@ DEFAULT_COMMENT_PUSH_ENABLED = True
 
 _LIKE_CD_KEY = "notif:like:cd:{user_id}"
 _LIKE_PENDING_KEY = "notif:like:pend:{user_id}"
+_COMMENT_BURST_KEY = "notif:cburst:{user_id}"
+_COMMENT_BURST_SECONDS = 60
 # Pending-счётчик должен пережить кулдаун любой разумной длины (админ может
 # поставить и неделю), но не копиться вечно у неактивных получателей.
 _PENDING_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 дней
@@ -117,3 +119,18 @@ class NotificationThrottle:
         if value is None:
             return DEFAULT_COMMENT_PUSH_ENABLED
         return value > 0
+
+    async def allow_comment_push(self, recipient_user_id: int) -> bool:
+        """Анти-всплеск: не чаще 1 коммент/ответ-пуша в минуту на получателя.
+
+        Защита от пуш-харассмента (спамер строчит комменты под постом жертвы —
+        без гарда каждый превращался бы в пуш). При обычном темпе (2-3 коммента
+        на пост) поведение «разовый пуш по факту» не меняется. Redis недоступен
+        → пуш не шлём (fail-open в сторону тишины, как у лайков).
+        """
+        key = _COMMENT_BURST_KEY.format(user_id=recipient_user_id)
+        try:
+            return bool(await self._redis.set(key, 1, ex=_COMMENT_BURST_SECONDS, nx=True))
+        except Exception as exc:
+            logger.warning("notification throttle: redis error, skipping push: {}", exc)
+            return False

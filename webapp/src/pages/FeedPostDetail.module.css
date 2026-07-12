@@ -475,7 +475,12 @@
   align-self: flex-start;
   background: none;
   border: none;
-  padding: 2px 0;
+  /* Хит-область >=32px (WCAG), визуальный интервал компенсируем margin'ом. */
+  padding: 8px 12px 8px 0;
+  margin: -6px 0;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
   font-size: 12px;
   font-weight: 600;
   color: var(--tg-theme-link-color, #2481cc);

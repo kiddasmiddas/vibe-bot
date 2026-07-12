@@ -129,7 +129,8 @@ async def notify_post_commented_bg(
 
         targets: list[tuple[int, str]] = []  # (chat_id, text)
         async with async_session_factory() as session:
-            if not await _build_throttle(session).comments_enabled():
+            throttle = _build_throttle(session)
+            if not await throttle.comments_enabled():
                 return
             post = await FeedRepository(session).get_by_id(post_id)
             if post is None:
@@ -138,7 +139,11 @@ async def notify_post_commented_bg(
 
             if replied_author_user_id is not None and replied_author_user_id != commenter_user_id:
                 replied = await user_repo.get_by_id(replied_author_user_id)
-                if replied is not None and not replied.is_banned:
+                if (
+                    replied is not None
+                    and not replied.is_banned
+                    and await throttle.allow_comment_push(replied.id)
+                ):
                     targets.append((replied.telegram_id, texts.REPLY_PUSH.format(preview=preview)))
 
             post_author_id = post.author_user_id
@@ -148,7 +153,11 @@ async def notify_post_commented_bg(
                 and post_author_id != replied_author_user_id
             ):
                 author = await user_repo.get_by_id(post_author_id)
-                if author is not None and not author.is_banned:
+                if (
+                    author is not None
+                    and not author.is_banned
+                    and await throttle.allow_comment_push(author.id)
+                ):
                     targets.append(
                         (author.telegram_id, texts.COMMENT_PUSH_ONE.format(preview=preview))
                     )

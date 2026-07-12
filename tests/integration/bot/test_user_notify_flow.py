@@ -226,12 +226,14 @@ async def test_comment_push_skips_self_comment(
 async def test_comment_push_sent_for_every_comment(
     db_session, notif_redis, patched_session_factory
 ) -> None:
-    """Без агрегации: каждый комментарий — отдельный пуш сразу по факту."""
-    post_id, _ = await _make_post(db_session, author_tg=97004)
+    """Без агрегации: каждый комментарий — пуш по факту (вне минутного всплеска)."""
+    post_id, author_id = await _make_post(db_session, author_tg=97004)
     commenter = await UserRepository(db_session).create(telegram_id=97005)
     bot = _mock_bot()
 
     for text in ("раз", "два", "три"):
+        # Между комментариями «прошла минута» — анти-всплеск-ключ истёк.
+        notif_redis._store.pop(f"notif:cburst:{author_id}", None)
         await notify_post_commented_bg(
             bot,
             post_id=post_id,
@@ -242,6 +244,26 @@ async def test_comment_push_sent_for_every_comment(
 
     assert bot.send_message.await_count == 3
     assert "три" in bot.send_message.await_args.kwargs["text"]
+
+
+@pytest.mark.asyncio
+async def test_comment_push_burst_guard(db_session, notif_redis, patched_session_factory) -> None:
+    """Анти-харассмент: шквал комментов даёт получателю максимум 1 пуш в минуту."""
+    post_id, _ = await _make_post(db_session, author_tg=97010)
+    commenter = await UserRepository(db_session).create(telegram_id=97011)
+    bot = _mock_bot()
+
+    for text in ("спам 1", "спам 2", "спам 3"):
+        await notify_post_commented_bg(
+            bot,
+            post_id=post_id,
+            commenter_user_id=commenter.id,
+            preview_text=text,
+            has_media=False,
+        )
+
+    assert bot.send_message.await_count == 1
+    assert "спам 1" in bot.send_message.await_args.kwargs["text"]
 
 
 @pytest.mark.asyncio

@@ -183,3 +183,23 @@ async def test_comments_enabled_ignores_redis_failure() -> None:
     """Тумблер читается из БД — падение Redis на него не влияет."""
     throttle = _throttle(_FakeRedis(fail=True), comments_enabled=1)
     assert await throttle.comments_enabled() is True
+
+
+@pytest.mark.asyncio
+async def test_comment_burst_guard_once_per_window() -> None:
+    """Анти-всплеск: первый пуш получателю проходит, повторный в окне — нет."""
+    redis = _FakeRedis()
+    throttle = _throttle(redis)
+    assert await throttle.allow_comment_push(5) is True
+    assert await throttle.allow_comment_push(5) is False
+    # Другой получатель — независимое окно.
+    assert await throttle.allow_comment_push(6) is True
+    # Окно «истекло» → снова можно.
+    redis.expire_key("notif:cburst:5")
+    assert await throttle.allow_comment_push(5) is True
+
+
+@pytest.mark.asyncio
+async def test_comment_burst_guard_redis_down_means_silence() -> None:
+    throttle = _throttle(_FakeRedis(fail=True))
+    assert await throttle.allow_comment_push(5) is False

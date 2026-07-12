@@ -145,13 +145,29 @@ export function FeedPostDetail() {
   const [replyTo, setReplyTo] = useState<{ id: number; author: string } | null>(null)
   const commentFileInputRef = useRef<HTMLInputElement | null>(null)
   const commentInputRef = useRef<HTMLTextAreaElement | null>(null)
+  // Последняя автоподстановка «Ник, » — чтобы при смене адресата заменить её,
+  // а набранный вручную текст не трогать.
+  const lastAutoPrefixRef = useRef<string | null>(null)
 
-  const handleReplyClick = useCallback((comment: FeedComment) => {
-    setReplyTo({ id: comment.id, author: comment.author_name })
-    // Подставляем ник в начало пустого поля — видно, кому отвечаешь.
-    setCommentText((prev) => (prev.trim() ? prev : `${comment.author_name}, `))
-    commentInputRef.current?.focus()
-  }, [])
+  const handleReplyClick = useCallback(
+    (comment: FeedComment) => {
+      setReplyTo({ id: comment.id, author: comment.author_name })
+      // При прикреплённом фото текст не подставляем: поле disabled, а в
+      // медиа-комментарии текст всё равно не отправляется.
+      if (attachedMedia === null) {
+        const prefix = `${comment.author_name}, `
+        setCommentText((prev) => {
+          if (!prev.trim() || prev === lastAutoPrefixRef.current) {
+            lastAutoPrefixRef.current = prefix
+            return prefix
+          }
+          return prev
+        })
+        commentInputRef.current?.focus()
+      }
+    },
+    [attachedMedia],
+  )
 
   useEffect(() => {
     showBackButton(() => navigate(-1))
@@ -284,6 +300,7 @@ export function FeedPostDetail() {
 
       setCommentText('')
       setReplyTo(null)
+      lastAutoPrefixRef.current = null
       if (attachedMedia) {
         URL.revokeObjectURL(attachedMedia.previewUrl)
         setAttachedMedia(null)
@@ -502,7 +519,7 @@ export function FeedPostDetail() {
 
           {/* Плашка «В ответ …» */}
           {replyTo && (
-            <div className={styles.replyChip}>
+            <div className={styles.replyChip} role="status" aria-live="polite">
               <span className={styles.replyChipText}>↩️ В ответ {replyTo.author}</span>
               <button
                 type="button"
