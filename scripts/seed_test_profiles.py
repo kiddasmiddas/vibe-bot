@@ -15,6 +15,7 @@
 
 Safety net: скрипт падает, если бот не @Testvibedaiv_bot.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -32,54 +33,99 @@ EXPECTED_BOT_USERNAME = "Testvibedaiv_bot"
 
 SEEDS: list[dict] = [
     {
-        "telegram_id": 900001, "username": "seed_mira", "nickname": "Мира",
-        "age": 21, "gender_id": 2, "city": "Москва",
-        "bio": "Рисую, смотрю аниме, ищу того, с кем можно вечером бродить и говорить о всякой ерунде.",
-        "own_vibe_id": 3, "lf_age_min": 18, "lf_age_max": 30,
+        "telegram_id": 900001,
+        "username": "seed_mira",
+        "nickname": "Мира",
+        "age": 21,
+        "gender_id": 2,
+        "city": "Москва",
+        "bio": "Рисую, смотрю аниме, ищу того, с кем можно вечером бродить и болтать.",
+        "own_vibe_id": 3,
+        "lf_age_min": 18,
+        "lf_age_max": 30,
         "lf_genders": [1, 3],
-        "fandoms": [1, 2, 8], "desired_fandoms": [1, 8], "interests": [1, 10],
+        "fandoms": [1, 2, 8],
+        "desired_fandoms": [1, 8],
+        "interests": [1, 10],
         "desired_vibes": [1, 3, 7, 9],
-        "color": (255, 130, 180), "label": "M",
+        "color": (255, 130, 180),
+        "label": "M",
     },
     {
-        "telegram_id": 900002, "username": "seed_aki", "nickname": "Аки",
-        "age": 24, "gender_id": 1, "city": "Москва",
+        "telegram_id": 900002,
+        "username": "seed_aki",
+        "nickname": "Аки",
+        "age": 24,
+        "gender_id": 1,
+        "city": "Москва",
         "bio": "Косплею, играю в JRPG. Ищу спокойную компанию.",
-        "own_vibe_id": 7, "lf_age_min": 19, "lf_age_max": 28,
+        "own_vibe_id": 7,
+        "lf_age_min": 19,
+        "lf_age_max": 28,
         "lf_genders": [2],
-        "fandoms": [1, 8, 13], "desired_fandoms": [1, 8], "interests": [5, 8, 10],
+        "fandoms": [1, 8, 13],
+        "desired_fandoms": [1, 8],
+        "interests": [5, 8, 10],
         "desired_vibes": [3, 7, 9],
-        "color": (90, 130, 230), "label": "A",
+        "color": (90, 130, 230),
+        "label": "A",
     },
     {
-        "telegram_id": 900003, "username": "seed_yume", "nickname": "Юме",
-        "age": 19, "gender_id": 2, "city": "Санкт-Петербург",
+        "telegram_id": 900003,
+        "username": "seed_yume",
+        "nickname": "Юме",
+        "age": 19,
+        "gender_id": 2,
+        "city": "Санкт-Петербург",
         "bio": "Учу японский, фанатею от Vocaloid'а. Лучше друзей по душе, чем людей просто рядом.",
-        "own_vibe_id": 9, "lf_age_min": 18, "lf_age_max": 25,
+        "own_vibe_id": 9,
+        "lf_age_min": 18,
+        "lf_age_max": 25,
         "lf_genders": [1, 2, 3],
-        "fandoms": [1, 4, 6], "desired_fandoms": [1, 4, 6], "interests": [4, 10, 15],
+        "fandoms": [1, 4, 6],
+        "desired_fandoms": [1, 4, 6],
+        "interests": [4, 10, 15],
         "desired_vibes": [3, 9, 5],
-        "color": (180, 220, 255), "label": "Y",
+        "color": (180, 220, 255),
+        "label": "Y",
     },
     {
-        "telegram_id": 900004, "username": "seed_ren", "nickname": "Рен",
-        "age": 26, "gender_id": 3, "city": "Казань",
+        "telegram_id": 900004,
+        "username": "seed_ren",
+        "nickname": "Рен",
+        "age": 26,
+        "gender_id": 3,
+        "city": "Казань",
         "bio": "Пишу музыку и фанфики. Ищу единомышленника — поговорить, поделиться.",
-        "own_vibe_id": 6, "lf_age_min": 20, "lf_age_max": 32,
+        "own_vibe_id": 6,
+        "lf_age_min": 20,
+        "lf_age_max": 32,
         "lf_genders": [1, 2, 3],
-        "fandoms": [2, 5, 7], "desired_fandoms": [2, 7], "interests": [2, 3],
+        "fandoms": [2, 5, 7],
+        "desired_fandoms": [2, 7],
+        "interests": [2, 3],
         "desired_vibes": [1, 6, 8],
-        "color": (130, 220, 130), "label": "R",
+        "color": (130, 220, 130),
+        "label": "R",
     },
     {
-        "telegram_id": 900005, "username": "seed_kira", "nickname": "Кира",
-        "age": 22, "gender_id": 2, "city": "Москва",
+        "telegram_id": 900005,
+        "username": "seed_kira",
+        "nickname": "Кира",
+        "age": 22,
+        "gender_id": 2,
+        "city": "Москва",
         "bio": "Animation, motion design, чай с молоком. Ищу того, кто умеет молча сидеть рядом.",
-        "own_vibe_id": 11, "lf_age_min": 19, "lf_age_max": 27,
+        "own_vibe_id": 11,
+        "lf_age_min": 19,
+        "lf_age_max": 27,
         "lf_genders": [1, 2],
-        "fandoms": [1, 9, 10], "desired_fandoms": [9, 10], "interests": [1, 9, 11],
+        "fandoms": [1, 9, 10],
+        "desired_fandoms": [9, 10],
+        "interests": [1, 9, 11],
         "desired_vibes": [3, 6, 9, 11],
-        "color": (240, 200, 100), "label": "K",
+        "color": (240, 200, 100),
+        "label": "K",
     },
 ]
 
@@ -178,10 +224,16 @@ async def insert_into_db(file_ids: dict[int, str], database_url: str) -> None:
                     ") RETURNING id"
                 ),
                 {
-                    "uid": user_id, "nick": s["nickname"], "age": s["age"],
-                    "gid": s["gender_id"], "lf_min": s["lf_age_min"],
-                    "lf_max": s["lf_age_max"], "bio": s["bio"], "city": s["city"],
-                    "vibe": s["own_vibe_id"], "fid": file_id,
+                    "uid": user_id,
+                    "nick": s["nickname"],
+                    "age": s["age"],
+                    "gid": s["gender_id"],
+                    "lf_min": s["lf_age_min"],
+                    "lf_max": s["lf_age_max"],
+                    "bio": s["bio"],
+                    "city": s["city"],
+                    "vibe": s["own_vibe_id"],
+                    "fid": file_id,
                 },
             )
             profile_id = result.scalar()
@@ -196,10 +248,7 @@ async def insert_into_db(file_ids: dict[int, str], database_url: str) -> None:
                 )
             for fid in s["fandoms"]:
                 await session.execute(
-                    text(
-                        "INSERT INTO profile_fandoms (profile_id, fandom_id) "
-                        "VALUES (:p, :f)"
-                    ),
+                    text("INSERT INTO profile_fandoms (profile_id, fandom_id) VALUES (:p, :f)"),
                     {"p": profile_id, "f": fid},
                 )
             for fid in s["desired_fandoms"]:
@@ -212,24 +261,16 @@ async def insert_into_db(file_ids: dict[int, str], database_url: str) -> None:
                 )
             for iid in s["interests"]:
                 await session.execute(
-                    text(
-                        "INSERT INTO profile_interests (profile_id, interest_id) "
-                        "VALUES (:p, :i)"
-                    ),
+                    text("INSERT INTO profile_interests (profile_id, interest_id) VALUES (:p, :i)"),
                     {"p": profile_id, "i": iid},
                 )
             for vid in s["desired_vibes"]:
                 await session.execute(
-                    text(
-                        "INSERT INTO profile_desired_vibes (profile_id, vibe_id) "
-                        "VALUES (:p, :v)"
-                    ),
+                    text("INSERT INTO profile_desired_vibes (profile_id, vibe_id) VALUES (:p, :v)"),
                     {"p": profile_id, "v": vid},
                 )
 
-            print(
-                f"  profile id={profile_id} {s['nickname']} ({s['city']}) inserted"
-            )
+            print(f"  profile id={profile_id} {s['nickname']} ({s['city']}) inserted")
         await session.commit()
     await engine.dispose()
 
@@ -247,8 +288,7 @@ async def main() -> None:
         print(f"bot: @{me.username} (id={me.id})")
         if me.username != EXPECTED_BOT_USERNAME:
             print(
-                f"!!! ABORT: this script only runs as @{EXPECTED_BOT_USERNAME}, "
-                f"got @{me.username}."
+                f"!!! ABORT: this script only runs as @{EXPECTED_BOT_USERNAME}, got @{me.username}."
             )
             sys.exit(1)
         file_ids = await upload_to_telegram(bot, staging_chat_id)

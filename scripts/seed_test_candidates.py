@@ -30,19 +30,21 @@ EVERY_N = "5"
 
 async def main() -> None:
     async with async_session_factory() as s:
-        nik = (
-            await s.execute(select(User).where(User.telegram_id == NIKITA_TG))
-        ).scalar_one()
+        nik = (await s.execute(select(User).where(User.telegram_id == NIKITA_TG))).scalar_one()
         nikp = (await s.execute(select(Profile).where(Profile.user_id == nik.id))).scalar_one()
 
         my_gender = nikp.gender_id
         their_lfg = (
-            await s.execute(
-                select(ProfileLookingForGender.gender_id).where(
-                    ProfileLookingForGender.profile_id == nikp.id
+            (
+                await s.execute(
+                    select(ProfileLookingForGender.gender_id).where(
+                        ProfileLookingForGender.profile_id == nikp.id
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         their_gender = their_lfg[0] if their_lfg else (2 if my_gender == 1 else 1)
         their_age = max(nikp.looking_for_age_min, min(nikp.looking_for_age_max, 20))
         vibe_ids = (await s.execute(select(Vibe.id).order_by(Vibe.id).limit(12))).scalars().all()
@@ -94,18 +96,24 @@ async def main() -> None:
             )
             s.add(
                 AdRotationPost(
-                    text="✨ Устал от лимитов и рекламы? Оформи Premium — безлимит лайков и тишина!",
+                    text=(
+                        "✨ Устал от лимитов и рекламы? Оформи Premium — безлимит лайков и тишина!"
+                    ),
                     button_label="Купить Premium",
                     button_target="premium",
                 )
             )
             s.add(
-                AdRotationPost(text="📣 Тестовое объявление без кнопки перехода (только «Не интересно»).")
+                AdRotationPost(
+                    text="📣 Тестовое объявление без кнопки перехода (только «Не интересно»)."
+                )
             )
 
         await s.execute(
             pg_insert(AppSetting)
-            .values(key="ads_rotation_every_n", value=EVERY_N, description="тест: показ каждые N анкет")
+            .values(
+                key="ads_rotation_every_n", value=EVERY_N, description="тест: показ каждые N анкет"
+            )
             .on_conflict_do_update(index_elements=[AppSetting.key], set_={"value": EVERY_N})
         )
         await s.commit()
