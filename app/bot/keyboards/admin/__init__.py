@@ -48,6 +48,10 @@ class AdRotationCb(CallbackData, prefix="adm_adrot"):
     ad_id: int = 0
 
 
+class AdminNotifCb(CallbackData, prefix="adm_ntf"):
+    action: str  # like_freq|comment_freq
+
+
 class AdminDictCb(CallbackData, prefix="adm_dict"):
     action: str  # fandoms|interests|vibes|cats|reasons|add|edit|deactivate|activate|open
     model: str = ""  # fandom|interest|vibe|creator_category|complaint_reason
@@ -163,6 +167,7 @@ def admin_main_menu_kb() -> InlineKeyboardMarkup:
         ADMIN_MENU_BTN_COMPLAINTS,
         ADMIN_MENU_BTN_DICTS,
         ADMIN_MENU_BTN_FEED,
+        ADMIN_MENU_BTN_NOTIF,
         ADMIN_MENU_BTN_PREMIUM,
         ADMIN_MENU_BTN_REVIEW,
         ADMIN_MENU_BTN_SETTINGS,
@@ -179,6 +184,7 @@ def admin_main_menu_kb() -> InlineKeyboardMarkup:
     b.button(text=ADMIN_MENU_BTN_FEED, callback_data=AdminMenuCb(action="feed"))
     b.button(text=ADMIN_MENU_BTN_PREMIUM, callback_data=AdminMenuCb(action="premium"))
     b.button(text=ADMIN_MENU_BTN_ADS, callback_data=AdminMenuCb(action="ads"))
+    b.button(text=ADMIN_MENU_BTN_NOTIF, callback_data=AdminMenuCb(action="notifications"))
     b.button(text=ADMIN_MENU_BTN_DICTS, callback_data=AdminMenuCb(action="dicts"))
     if _SHOW_GENERAL_SETTINGS:
         b.button(text=ADMIN_MENU_BTN_SETTINGS, callback_data=AdminMenuCb(action="settings"))

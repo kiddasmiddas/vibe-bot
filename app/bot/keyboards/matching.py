@@ -33,6 +33,18 @@ class MatchingUndoCb(CallbackData, prefix="mt_undo"):
     """
 
 
+class MatchesMenuCb(CallbackData, prefix="mts"):
+    """Переход в одну из вкладок раздела «Мои лайки / мэтчи».
+
+    Живёт в keyboards (а не в handlers/matches.py), потому что кнопку
+    «Посмотреть» с этим callback шлют и пуш-уведомления о лайках
+    (app/bot/utils/user_notify.py) — импорт хэндлера оттуда дал бы цикл.
+    """
+
+    section: str  # 'incoming' | 'matches'
+    index: int = 0
+
+
 class VibePendingCb(CallbackData, prefix="vibe_pend"):
     """Гард входа в поиск, пока модератор не подобрал вайб («Вайб по фото»).
 

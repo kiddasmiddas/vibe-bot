@@ -33,6 +33,7 @@ from app.api.schemas.feed import (
     UploadMediaResponse,
 )
 from app.bot.utils.admin_notify import notify_admins_feed_post_pending
+from app.bot.utils.user_notify import spawn_notify_post_commented
 from app.cache import get_redis
 from app.config import settings
 from app.db.models.profile import Profile
@@ -565,6 +566,15 @@ async def create_comment(
         )
     except FeedServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    # Пуш автору поста — фоном, ответ Mini App не ждёт Telegram.
+    spawn_notify_post_commented(
+        _get_upload_bot(),
+        post_id=post_id,
+        commenter_user_id=user.id,
+        preview_text=body.text,
+        has_media=body.media_file_id is not None,
+    )
 
     return CreateCommentResponse(id=comment_id)
 

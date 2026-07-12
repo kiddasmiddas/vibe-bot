@@ -11,6 +11,7 @@ from app.bot.handlers.admin.creators import router as creators_router
 from app.bot.handlers.admin.dictionaries import router as dicts_router
 from app.bot.handlers.admin.feed import router as feed_router
 from app.bot.handlers.admin.menu import router as menu_router
+from app.bot.handlers.admin.notifications import router as notifications_router
 from app.bot.handlers.admin.premium import router as premium_router
 from app.bot.handlers.admin.promo import router as promo_router
 from app.bot.handlers.admin.review import router as review_router
@@ -30,6 +31,7 @@ admin_router.include_router(feed_router)
 admin_router.include_router(premium_router)
 admin_router.include_router(promo_router)
 admin_router.include_router(ads_rotation_router)
+admin_router.include_router(notifications_router)
 admin_router.include_router(dicts_router)
 admin_router.include_router(review_router)
 admin_router.include_router(stopwords_router)

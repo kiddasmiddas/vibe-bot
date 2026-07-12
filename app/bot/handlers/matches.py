@@ -28,7 +28,9 @@ from app.bot.handlers.matching import (
     _try_add_dislike,
 )
 from app.bot.keyboards.main_menu import main_menu_kb
+from app.bot.keyboards.matching import MatchesMenuCb
 from app.bot.utils.render_profile import RenderedProfile, truncate_caption
+from app.bot.utils.user_notify import notify_like_received
 from app.db.models.matching import Like, Match
 from app.db.models.user import User
 from app.db.repositories.analytics_repo import AnalyticsRepository
@@ -42,13 +44,6 @@ router = Router(name="matches")
 
 
 # --------------------------- CallbackData ---------------------------
-
-
-class MatchesMenuCb(CallbackData, prefix="mts"):
-    """Переход в одну из вкладок раздела."""
-
-    section: str  # 'incoming' | 'matches'
-    index: int = 0
 
 
 class IncomingLikeActionCb(CallbackData, prefix="ilike"):
@@ -388,6 +383,10 @@ async def cb_incoming_like_action(
                 other_user_id=liker_user_id,
                 initial_message=outcome.initial_message,
             )
+        elif outcome.like_recorded:
+            # Ответный лайк почти всегда даёт мэтч; ветка на случай, когда
+            # исходный лайк к этому моменту исчез (например, анкета удалена).
+            await notify_like_received(bot, db_session, to_user_id=liker_user_id, kind="like")
     elif action == "dislike":
         wrote = await _try_add_dislike(db_session, from_user_id=user.id, to_user_id=liker_user_id)
         if wrote:

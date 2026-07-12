@@ -51,6 +51,12 @@ class AdminAdsRotationStates(StatesGroup):
     ask_frequency = State()
 
 
+class AdminNotifStates(StatesGroup):
+    # Кулдауны пуш-уведомлений (раздел «Уведомления»).
+    ask_like_hours = State()
+    ask_comment_minutes = State()
+
+
 class AdminDictStates(StatesGroup):
     ask_code = State()
     ask_title = State()

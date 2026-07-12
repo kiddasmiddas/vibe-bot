@@ -48,6 +48,7 @@ from app.bot.utils.render_profile import (
     build_rendered_profile,
     truncate_caption,
 )
+from app.bot.utils.user_notify import notify_like_received
 from app.cache import get_redis
 from app.db.models.ads_rotation import AdRotationPost
 from app.db.models.profile import Profile
@@ -781,6 +782,9 @@ async def on_matching_action(
                 other_user_id=target_user_id,
                 initial_message=outcome.initial_message,
             )
+        elif outcome.like_recorded:
+            # Мэтча нет — уведомляем получателя лайка (агрегация в throttle).
+            await notify_like_received(bot, db_session, to_user_id=target_user_id, kind="like")
         await callback.answer()
         await _advance_or_show_ad(callback.message, db_session, user, state=state)
         return
@@ -1043,6 +1047,15 @@ async def on_superlike_message(
             initiator_user=user,
             other_user_id=int(target_user_id),
             initial_message=outcome.initial_message,
+        )
+    elif outcome.like_recorded:
+        # Суперлайк без мэтча — мгновенный пуш получателю (вне кулдауна лайков).
+        await notify_like_received(
+            bot,
+            db_session,
+            to_user_id=int(target_user_id),
+            kind="superlike",
+            superlike_message=text,
         )
 
     await state.clear()
