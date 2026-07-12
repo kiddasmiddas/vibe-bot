@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.services.notification_service import (
-    SETTING_COMMENT_PAUSE_MIN,
+    SETTING_COMMENT_PUSH_ENABLED,
     SETTING_LIKE_COOLDOWN_HOURS,
     NotificationThrottle,
 )
@@ -69,12 +69,12 @@ def _throttle(
     redis: _FakeRedis,
     *,
     like_hours: int | None = 24,
-    comment_min: int | None = 15,
+    comments_enabled: int | None = 1,
 ) -> NotificationThrottle:
     settings = _StubSettings(
         {
             SETTING_LIKE_COOLDOWN_HOURS: like_hours,
-            SETTING_COMMENT_PAUSE_MIN: comment_min,
+            SETTING_COMMENT_PUSH_ENABLED: comments_enabled,
         }
     )
     return NotificationThrottle(settings_repo=settings, redis=redis)  # type: ignore[arg-type]
@@ -162,28 +162,24 @@ async def test_superlike_redis_down_fail_open() -> None:
     assert await throttle.register_superlike(1) is False
 
 
-# --------------------------- комментарии ---------------------------
+# --------------------------- комментарии (тумблер) ---------------------------
 
 
 @pytest.mark.asyncio
-async def test_first_comment_pushes_immediately() -> None:
-    throttle = _throttle(_FakeRedis())
-    assert await throttle.register_post_comment(10) == 1
+async def test_comments_enabled_by_default() -> None:
+    """Нет настройки → дефолт: пуши включены."""
+    throttle = _throttle(_FakeRedis(), comments_enabled=None)
+    assert await throttle.comments_enabled() is True
 
 
 @pytest.mark.asyncio
-async def test_comments_within_pause_accumulate_per_post() -> None:
-    redis = _FakeRedis()
-    throttle = _throttle(redis)
-    assert await throttle.register_post_comment(10) == 1
-    assert await throttle.register_post_comment(10) is None
-    # Другой пост — независимое окно.
-    assert await throttle.register_post_comment(11) == 1
-    redis.expire_key("notif:post:cd:10")
-    assert await throttle.register_post_comment(10) == 2
+async def test_comments_toggle_on_off() -> None:
+    assert await _throttle(_FakeRedis(), comments_enabled=1).comments_enabled() is True
+    assert await _throttle(_FakeRedis(), comments_enabled=0).comments_enabled() is False
 
 
 @pytest.mark.asyncio
-async def test_comments_disabled_when_zero() -> None:
-    throttle = _throttle(_FakeRedis(), comment_min=0)
-    assert await throttle.register_post_comment(10) is None
+async def test_comments_enabled_ignores_redis_failure() -> None:
+    """Тумблер читается из БД — падение Redis на него не влияет."""
+    throttle = _throttle(_FakeRedis(fail=True), comments_enabled=1)
+    assert await throttle.comments_enabled() is True

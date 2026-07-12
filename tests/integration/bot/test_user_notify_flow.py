@@ -223,9 +223,10 @@ async def test_comment_push_skips_self_comment(
 
 
 @pytest.mark.asyncio
-async def test_comment_push_aggregates_within_pause(
+async def test_comment_push_sent_for_every_comment(
     db_session, notif_redis, patched_session_factory
 ) -> None:
+    """Без агрегации: каждый комментарий — отдельный пуш сразу по факту."""
     post_id, _ = await _make_post(db_session, author_tg=97004)
     commenter = await UserRepository(db_session).create(telegram_id=97005)
     bot = _mock_bot()
@@ -238,17 +239,29 @@ async def test_comment_push_aggregates_within_pause(
             preview_text=text,
             has_media=False,
         )
-    notif_redis._store.pop(f"notif:post:cd:{post_id}")
+
+    assert bot.send_message.await_count == 3
+    assert "три" in bot.send_message.await_args.kwargs["text"]
+
+
+@pytest.mark.asyncio
+async def test_comment_push_disabled_by_toggle(
+    db_session, notif_redis, patched_session_factory
+) -> None:
+    post_id, _ = await _make_post(db_session, author_tg=97008)
+    commenter = await UserRepository(db_session).create(telegram_id=97009)
+    await SettingsRepository(db_session).set("notif_comment_push_enabled", "0")
+    bot = _mock_bot()
+
     await notify_post_commented_bg(
         bot,
         post_id=post_id,
         commenter_user_id=commenter.id,
-        preview_text="четыре",
+        preview_text="тихо",
         has_media=False,
     )
 
-    assert bot.send_message.await_count == 2
-    assert bot.send_message.await_args.kwargs["text"] == texts.COMMENT_PUSH_MANY.format(n=3)
+    bot.send_message.assert_not_awaited()
 
 
 @pytest.mark.asyncio

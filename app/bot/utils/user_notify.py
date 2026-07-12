@@ -110,7 +110,11 @@ async def notify_post_commented_bg(
     preview_text: str | None,
     has_media: bool,
 ) -> None:
-    """Фоновый пуш автору поста о новом комментарии (вызов из API-процесса)."""
+    """Фоновый пуш автору поста о новом комментарии (вызов из API-процесса).
+
+    Без агрегации: один пуш на каждый комментарий сразу по факту
+    (решение клиента 2026-07; выключается тумблером в /admin → Уведомления).
+    """
     try:
         async with async_session_factory() as session:
             post = await FeedRepository(session).get_by_id(post_id)
@@ -122,19 +126,13 @@ async def notify_post_commented_bg(
             if author is None or author.is_banned:
                 return
             author_chat_id = author.telegram_id
-            pushed_count = await _build_throttle(session).register_post_comment(post_id)
-        if pushed_count is None:
-            return
+            if not await _build_throttle(session).comments_enabled():
+                return
 
-        if pushed_count == 1:
-            preview = (preview_text or "").strip() or (
-                texts.COMMENT_PREVIEW_MEDIA if has_media else ""
-            )
-            if len(preview) > _COMMENT_PREVIEW_MAX:
-                preview = preview[: _COMMENT_PREVIEW_MAX - 1] + "…"
-            text = texts.COMMENT_PUSH_ONE.format(preview=_html_escape(preview))
-        else:
-            text = texts.COMMENT_PUSH_MANY.format(n=pushed_count)
+        preview = (preview_text or "").strip() or (texts.COMMENT_PREVIEW_MEDIA if has_media else "")
+        if len(preview) > _COMMENT_PREVIEW_MAX:
+            preview = preview[: _COMMENT_PREVIEW_MAX - 1] + "…"
+        text = texts.COMMENT_PUSH_ONE.format(preview=_html_escape(preview))
 
         # У API-шного Bot нет DefaultBotProperties → parse_mode задаём явно,
         # иначе экранированные сущности уйдут пользователю литералом.
