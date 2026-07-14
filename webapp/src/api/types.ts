@@ -37,7 +37,7 @@ export interface FeedPostDetail {
   photos: string[]
   /** Полный набор медиа с media_type — нужен при редактировании поста. */
   media?: FeedMediaItem[]
-  expires_at: string
+  expires_at: string | null
   reactions: FeedReactions
   my_reaction: string | null
 }

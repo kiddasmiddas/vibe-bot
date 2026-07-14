@@ -21,7 +21,8 @@ from app.db.base import Base
 class FeedPost(Base):
     """Пост пользователя в Ленте Mini App.
 
-    Создаётся из Mini App (Premium + анкета). Истекает по `expires_at` через 48 ч.
+    Создаётся из Mini App (Premium + анкета). `expires_at` задаётся настройкой
+    feed_post_ttl_hours (0 = NULL = пост живёт вечно; решение клиента 2026-07).
     Статусы: active / expired / hidden_by_moderator / deleted_by_user / blocked.
     """
 

@@ -57,7 +57,7 @@ class FeedPostDetail(BaseModel):
     created_at: str  # ISO 8601
     photos: list[str]  # file_id в порядке position (для просмотра)
     media: list[MediaItem]  # полный набор медиа с media_type — для редактирования
-    expires_at: str  # ISO 8601
+    expires_at: str | None  # ISO 8601; None = пост живёт вечно (ttl=0)
     reactions: ReactionCounts
     my_reaction: str | None
 

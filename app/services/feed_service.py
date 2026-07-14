@@ -156,7 +156,9 @@ class FeedService:
         is_pending = premoderate_n > 0 and all_time_count < premoderate_n
 
         ttl_hours = await self._setting_int("feed_post_ttl_hours", _DEFAULT_POST_TTL_HOURS)
-        expires_at = now + timedelta(hours=ttl_hours)
+        # 0 (и меньше) = посты живут вечно (решение клиента 2026-07): expires_at
+        # не ставится, шедулер экспирации такие посты не трогает.
+        expires_at = now + timedelta(hours=ttl_hours) if ttl_hours > 0 else None
 
         post = await self._feed_repo.create_post(
             author_user_id=user.id,

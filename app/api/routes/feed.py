@@ -252,7 +252,8 @@ async def feed_posts(
 ) -> FeedResponse:
     """Лента активных постов с курсорной пагинацией.
 
-    Возвращает только `status='active' AND expires_at > now() AND published_at IS NOT NULL`.
+    Возвращает только активные неистёкшие посты (expires_at NULL = вечный)
+    с published_at IS NOT NULL.
     """
     # ТЗ п.8: без заполненной анкеты — только превью ограниченного объёма.
     profile = await ProfileRepository(db).get_by_user_id(user.id)
@@ -322,10 +323,6 @@ async def get_feed_post(
     my_reaction_obj = await repo.get_user_reaction(post_id, user.id)
     my_reaction = my_reaction_obj.reaction_type if my_reaction_obj else None
 
-    # expires_at гарантированно не None: пост active и не истёк (проверено выше).
-    if post.expires_at is None:
-        raise HTTPException(status_code=500, detail="Post missing expires_at")
-
     return FeedPostDetail(
         id=post.id,
         author_id=post.author_user_id,
@@ -334,7 +331,7 @@ async def get_feed_post(
         created_at=post.created_at.isoformat(),
         photos=await resolve_many([m.file_id for m in photos]),
         media=[MediaItem(media_type=m.media_type, file_id=m.file_id) for m in photos],
-        expires_at=post.expires_at.isoformat(),
+        expires_at=post.expires_at.isoformat() if post.expires_at else None,
         reactions=counts,
         my_reaction=my_reaction,
     )
@@ -528,9 +525,6 @@ async def update_feed_post(
     my_reaction_obj = await repo.get_user_reaction(post_id, user.id)
     my_reaction = my_reaction_obj.reaction_type if my_reaction_obj else None
 
-    if updated_post.expires_at is None:
-        raise HTTPException(status_code=500, detail="Post missing expires_at")
-
     return FeedPostDetail(
         id=updated_post.id,
         author_id=updated_post.author_user_id,
@@ -539,7 +533,7 @@ async def update_feed_post(
         created_at=updated_post.created_at.isoformat(),
         photos=await resolve_many([m.file_id for m in photos]),
         media=[MediaItem(media_type=m.media_type, file_id=m.file_id) for m in photos],
-        expires_at=updated_post.expires_at.isoformat(),
+        expires_at=updated_post.expires_at.isoformat() if updated_post.expires_at else None,
         reactions=counts,
         my_reaction=my_reaction,
     )

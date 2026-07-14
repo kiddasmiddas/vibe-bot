@@ -153,7 +153,8 @@ class FeedRepository:
         now = datetime.now(tz=UTC)
         base_filter = and_(
             FeedPost.status == "active",
-            FeedPost.expires_at > now,
+            # expires_at IS NULL = пост «навсегда» (feed_post_ttl_hours=0).
+            or_(FeedPost.expires_at.is_(None), FeedPost.expires_at > now),
             FeedPost.published_at.is_not(None),
             # Посты на премодерации не показываем в публичной ленте (ТЗ п.2).
             FeedPost.is_pending_review.is_(False),
@@ -448,7 +449,12 @@ class FeedRepository:
         """
         stmt = delete(FeedPost).where(
             FeedPost.status.in_(["expired", "hidden_by_moderator", "deleted_by_user", "blocked"]),
-            FeedPost.expires_at < before,
+            # У «вечных» постов (expires_at IS NULL) возраст меряем по created_at,
+            # иначе скрытые/удалённые копились бы бесконечно.
+            or_(
+                FeedPost.expires_at < before,
+                and_(FeedPost.expires_at.is_(None), FeedPost.created_at < before),
+            ),
             FeedPost.created_at < keep_created_since,
         )
         result = await self._session.execute(stmt)
