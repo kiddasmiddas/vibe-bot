@@ -64,6 +64,7 @@ from app.services.access import has_premium_access
 from app.services.analytics_events import EventType
 from app.services.content_moderation_service import ContentModerationService
 from app.services.geo_service import get_geo_service
+from app.services.profile_limits import bio_max_length, fandoms_max_selected
 from app.services.user_service import delete_user_data
 from app.texts import common as common_texts
 from app.texts import premium_media as pm_texts
@@ -79,7 +80,6 @@ _DEFAULT_NICKNAME_MIN = 2
 _DEFAULT_NICKNAME_MAX = 32
 _DEFAULT_MIN_AGE = 14
 _DEFAULT_MAX_AGE = 80
-_DEFAULT_BIO_MAX = 500
 
 
 # ----------------------------- helpers -----------------------------
@@ -707,8 +707,7 @@ async def on_edit_bio(
     if not text:
         await message.answer(reg_texts.BIO_EMPTY)
         return
-    settings_repo = SettingsRepository(db_session)
-    max_len = (await settings_repo.get_int("bio_max_length")) or _DEFAULT_BIO_MAX
+    max_len = await bio_max_length(db_session)
     if len(text) > max_len:
         await message.answer(reg_texts.BIO_TOO_LONG.format(max_len=max_len))
         return
@@ -1044,11 +1043,16 @@ async def _handle_multi_select(
     on_done,
     on_page,
     on_build_kb=None,
+    max_selected: int | None = None,
+    limit_error: str | None = None,
 ) -> None:
     """Подмножество multi-select dispatcher'а из registration.py: без back.
 
     Если передан `on_build_kb`, на toggle/page редактируем существующее
     сообщение (без миганий). Иначе fallback на старую логику delete + resend.
+
+    `max_selected` — кап на число выбранных: добавить сверх лимита нельзя
+    (alert `limit_error` с {n}), снять выбор можно всегда.
     """
     action = callback_data.action
 
@@ -1078,6 +1082,9 @@ async def _handle_multi_select(
         if callback_data.value in selected:
             selected.remove(callback_data.value)
         else:
+            if max_selected is not None and len(selected) >= max_selected:
+                await callback.answer((limit_error or "").format(n=max_selected), show_alert=True)
+                return
             selected.add(callback_data.value)
         await state.update_data(**{state_key: list(selected)})
         page = int(data.get(page_key, 0))
@@ -1144,6 +1151,8 @@ async def on_edit_fandoms(
         on_done=_done,
         on_page=_send_fandoms_screen,
         on_build_kb=_build_fandoms_kb,
+        max_selected=await fandoms_max_selected(db_session),
+        limit_error=reg_texts.FANDOMS_LIMIT_REACHED,
     )
 
 
@@ -1184,6 +1193,8 @@ async def on_edit_desired_fandoms(
         on_done=_done,
         on_page=_send_desired_fandoms_screen,
         on_build_kb=_build_desired_fandoms_kb,
+        max_selected=await fandoms_max_selected(db_session),
+        limit_error=reg_texts.FANDOMS_LIMIT_REACHED,
     )
 
 

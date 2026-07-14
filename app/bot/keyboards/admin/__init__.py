@@ -52,6 +52,27 @@ class AdminNotifCb(CallbackData, prefix="adm_ntf"):
     action: str  # like_freq|comment_toggle
 
 
+class AdminTextsCb(CallbackData, prefix="adm_txt"):
+    """Редактор текстов бота (✏️ Тексты): карусель карточек «одна за другой».
+
+    action: open|edit|reset|noop; group — группа реестра bot_texts
+    (notif|general), idx — позиция текста в группе (open листает ◀️/▶️).
+    """
+
+    action: str
+    group: str = ""
+    idx: int = 0
+
+
+class AdminAppCfgCb(CallbackData, prefix="adm_cfg"):
+    """Раздел «⚙️ Настройки»: кураторские настройки кнопками (без сырых ключей).
+
+    action: menu|limits|limit_fandoms|limit_bio.
+    """
+
+    action: str
+
+
 class AdminVibesCb(CallbackData, prefix="adm_vibes"):
     """Раздел «Вайбы» в справочниках: пикер страниц как у пользователей.
 
@@ -176,6 +197,7 @@ def admin_main_menu_kb() -> InlineKeyboardMarkup:
         ADMIN_MENU_BTN_ADS,
         ADMIN_MENU_BTN_ALLEY,
         ADMIN_MENU_BTN_ANALYTICS,
+        ADMIN_MENU_BTN_APP_CFG,
         ADMIN_MENU_BTN_COMPLAINTS,
         ADMIN_MENU_BTN_DICTS,
         ADMIN_MENU_BTN_FEED,
@@ -197,6 +219,7 @@ def admin_main_menu_kb() -> InlineKeyboardMarkup:
     b.button(text=ADMIN_MENU_BTN_PREMIUM, callback_data=AdminMenuCb(action="premium"))
     b.button(text=ADMIN_MENU_BTN_ADS, callback_data=AdminMenuCb(action="ads"))
     b.button(text=ADMIN_MENU_BTN_NOTIF, callback_data=AdminMenuCb(action="notifications"))
+    b.button(text=ADMIN_MENU_BTN_APP_CFG, callback_data=AdminMenuCb(action="app_cfg"))
     b.button(text=ADMIN_MENU_BTN_DICTS, callback_data=AdminMenuCb(action="dicts"))
     if _SHOW_GENERAL_SETTINGS:
         b.button(text=ADMIN_MENU_BTN_SETTINGS, callback_data=AdminMenuCb(action="settings"))

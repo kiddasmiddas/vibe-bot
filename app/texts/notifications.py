@@ -28,6 +28,7 @@ COMMENT_STATUS_OFF = "выключены"
 BTN_LIKE_FREQ = "❤️ Частота: лайки"
 BTN_COMMENT_DISABLE = "💬 Выключить уведомления о комментариях"
 BTN_COMMENT_ENABLE = "💬 Включить уведомления о комментариях"
+BTN_EDIT_TEXTS = "✏️ Тексты уведомлений"
 LIKE_FREQ_SCREEN = (
     "❤️ <b>Уведомления о лайках</b>\n\n"
     "Сейчас: не чаще, чем раз в <b>{n}</b> ч.\n\n"

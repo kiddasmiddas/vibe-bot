@@ -15,7 +15,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.handlers.admin._helpers import is_admin, show_screen
-from app.bot.keyboards.admin import AdminMenuCb, AdminNotifCb, admin_back_home_kb
+from app.bot.keyboards.admin import AdminMenuCb, AdminNotifCb, AdminTextsCb, admin_back_home_kb
 from app.bot.states.admin import AdminNotifStates
 from app.db.models.user import User
 from app.db.repositories.settings_repo import SettingsRepository
@@ -44,6 +44,10 @@ def _menu_kb(*, comments_enabled: bool) -> InlineKeyboardMarkup:
     b.button(text=texts.BTN_LIKE_FREQ, callback_data=AdminNotifCb(action="like_freq"))
     toggle_text = texts.BTN_COMMENT_DISABLE if comments_enabled else texts.BTN_COMMENT_ENABLE
     b.button(text=toggle_text, callback_data=AdminNotifCb(action="comment_toggle"))
+    b.button(
+        text=texts.BTN_EDIT_TEXTS,
+        callback_data=AdminTextsCb(action="open", group="notif", idx=0),
+    )
     b.button(text=ADMIN_MENU_BTN_BACK, callback_data=AdminMenuCb(action="menu"))
     b.adjust(1)
     return b.as_markup()

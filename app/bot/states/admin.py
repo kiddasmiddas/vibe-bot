@@ -56,6 +56,17 @@ class AdminNotifStates(StatesGroup):
     ask_like_hours = State()
 
 
+class AdminTextsStates(StatesGroup):
+    # Редактор текстов бота: ввод нового текста (ключ — в state data).
+    ask_value = State()
+
+
+class AdminAppCfgStates(StatesGroup):
+    # Раздел «⚙️ Настройки» → «📏 Лимиты анкеты».
+    ask_fandoms_max = State()
+    ask_bio_max = State()
+
+
 class AdminVibesStates(StatesGroup):
     # Раздел «Вайбы»: переименование вайба и замена коллажа страницы.
     ask_title = State()

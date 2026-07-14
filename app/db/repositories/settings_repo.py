@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from loguru import logger
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +18,14 @@ CACHE_KEY_PREFIX = "settings:"
 # Заведён в seed-миграции b1c4d7e8a2f3; Premium-доступ снимает ограничение.
 SETTING_LIKE_DAILY_LIMIT = "like_daily_limit"
 DEFAULT_LIKE_DAILY_LIMIT = 30
+
+# Лимиты анкеты (правятся в /admin → ⚙️ Настройки → 📏 Лимиты анкеты).
+# `fandoms_max_selected` — максимум выбранных фандомов, и «своих», и «ищу».
+# `bio_max_length` — максимум символов «О себе» (сид d96deed7e5da, 500→200).
+SETTING_FANDOMS_MAX_SELECTED = "fandoms_max_selected"
+DEFAULT_FANDOMS_MAX_SELECTED = 15
+SETTING_BIO_MAX_LENGTH = "bio_max_length"
+DEFAULT_BIO_MAX_LENGTH = 200
 
 
 class SettingsRepository:
@@ -59,6 +68,12 @@ class SettingsRepository:
         if self._redis is not None:
             # Инвалидация — пишем новое значение поверх старого с тем же TTL.
             await self._redis.set(self._cache_key(key), value, ex=CACHE_TTL_SECONDS)
+
+    async def delete(self, key: str) -> None:
+        """Удаляет ключ (для «вернуть дефолт»); отсутствие записи = дефолт кода."""
+        await self._session.execute(sa_delete(AppSetting).where(AppSetting.key == key))
+        if self._redis is not None:
+            await self._redis.delete(self._cache_key(key))
 
     async def get_int(self, key: str) -> int | None:
         raw = await self.get(key)

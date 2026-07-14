@@ -167,13 +167,13 @@ async def test_bio_too_long_rejected(db_session, storage) -> None:
     await state.set_state(RegistrationStates.bio)
     user = await _make_user(db_session, telegram_id=4004)
 
-    long_text = "a" * 1000  # bio_max_length=500 в seed
+    long_text = "a" * 1000  # bio_max_length=200 в seed (c7e9a1b4d3f8)
     message = _mock_message(long_text)
     await on_bio(message, state, user, db_session)
 
     message.answer.assert_awaited_once()
     answered_text = message.answer.call_args.args[0]
-    assert "500" in answered_text
+    assert "200" in answered_text
     assert await state.get_state() == RegistrationStates.bio.state
 
 

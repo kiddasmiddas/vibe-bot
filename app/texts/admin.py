@@ -14,7 +14,10 @@ ADMIN_MENU_BTN_PREMIUM = "Premium"
 ADMIN_MENU_BTN_ADS = "Реклама"
 ADMIN_MENU_BTN_NOTIF = "🔔 Уведомления"
 ADMIN_MENU_BTN_DICTS = "Справочники"
+# Скрытая общая панель ключ-значение (см. _SHOW_GENERAL_SETTINGS) — НЕ путать
+# с кураторским разделом «⚙️ Настройки» (ADMIN_MENU_BTN_APP_CFG).
 ADMIN_MENU_BTN_SETTINGS = "Настройки"
+ADMIN_MENU_BTN_APP_CFG = "⚙️ Настройки"
 ADMIN_MENU_BTN_REVIEW = "На проверке"
 ADMIN_MENU_BTN_STOPWORDS = "Стоп-листы"
 ADMIN_MENU_BTN_ANALYTICS = "Аналитика"

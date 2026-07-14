@@ -43,6 +43,7 @@ BIO_EMPTY = "Не оставляй пустым — пара слов о себ�
 # --- fandoms / desired_fandoms / interests ---
 ASK_FANDOMS = "Выбери свои фандомы. Можно несколько."
 FANDOMS_EMPTY = "Выбери хотя бы один фандом."
+FANDOMS_LIMIT_REACHED = "Максимум {n} фандомов. Сними какой-нибудь, чтобы добавить другой."
 ASK_DESIRED_FANDOMS = "А какие фандомы у собеседника? Выбери хотя бы один."
 DESIRED_FANDOMS_EMPTY = "Выбери хотя бы один фандом."
 ASK_INTERESTS = "Отметь интересы — это поможет в подборе. Можно пропустить, нажав «Готово»."
@@ -134,5 +135,7 @@ RENDER_FIELD_DESIRED_VIBE = "Ищет вайб"
 RENDER_FIELD_LOOKING_FOR = "Ищет"
 RENDER_FIELD_LOOKING_FOR_AGE = "Возраст поиска"
 RENDER_EMPTY_VALUE = "—"
+# Свёрнутый хвост списка в карточке при нехватке caption-бюджета.
+RENDER_LIST_MORE = "…и ещё {n}"
 # desired_vibe IS NULL → пользователь ищет «любой» вайб (кнопка на шаге выбора).
 RENDER_VIBE_ANY = "любой"

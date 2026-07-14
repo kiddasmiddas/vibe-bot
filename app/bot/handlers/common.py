@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.keyboards.main_menu import main_menu_kb
 from app.db.models.user import User
 from app.db.repositories.profile_repo import ProfileRepository
-from app.texts import common as texts
+from app.db.repositories.settings_repo import SettingsRepository
+from app.services import bot_texts
 
 router = Router(name="common")
 
@@ -21,7 +22,8 @@ async def _is_registered(db_session: AsyncSession, user: User) -> bool:
 @router.message(CommandStart())
 async def cmd_start(message: Message, user: User, db_session: AsyncSession) -> None:
     is_registered = await _is_registered(db_session, user)
+    welcome = await bot_texts.render_text(SettingsRepository(db_session), bot_texts.KEY_WELCOME)
     await message.answer(
-        texts.WELCOME,
+        welcome,
         reply_markup=main_menu_kb(is_registered=is_registered),
     )

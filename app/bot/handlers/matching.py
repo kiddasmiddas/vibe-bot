@@ -61,6 +61,7 @@ from app.db.repositories.moderation_repo import ModerationRepository
 from app.db.repositories.profile_repo import ProfileRepository
 from app.db.repositories.settings_repo import SettingsRepository
 from app.db.repositories.user_repo import UserRepository
+from app.services import bot_texts
 from app.services.access import has_premium_access
 from app.services.ads_rotation_service import AdsRotationService
 from app.services.analytics_events import EventType
@@ -122,10 +123,22 @@ def _open_profile_kb(target_user: User) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def _format_match_notification(nickname: str, initial_message: str | None) -> str:
+async def _format_match_notification(
+    db_session: AsyncSession, nickname: str, initial_message: str | None
+) -> str:
+    """Текст мэтч-пуша (редактируемый). Ник и сообщение — пользовательский
+    ввод, экранируем: у бота default parse_mode=HTML."""
+    settings_repo = SettingsRepository(db_session)
     if initial_message:
-        return texts.MATCH_WITH_MESSAGE.format(nickname=nickname, message=initial_message)
-    return texts.MATCH_HEADER.format(nickname=nickname)
+        return await bot_texts.render_text(
+            settings_repo,
+            bot_texts.KEY_MATCH_PUSH_MSG,
+            nickname=_html_escape(nickname),
+            message=_html_escape(initial_message),
+        )
+    return await bot_texts.render_text(
+        settings_repo, bot_texts.KEY_MATCH_PUSH, nickname=_html_escape(nickname)
+    )
 
 
 async def _send_match_notifications(
@@ -160,8 +173,12 @@ async def _send_match_notifications(
         return
 
     # Инициатору — карточка другого юзера.
-    text_for_initiator = _format_match_notification(other_profile.nickname, initial_message)
-    text_for_other = _format_match_notification(initiator_profile.nickname, initial_message)
+    text_for_initiator = await _format_match_notification(
+        db_session, other_profile.nickname, initial_message
+    )
+    text_for_other = await _format_match_notification(
+        db_session, initiator_profile.nickname, initial_message
+    )
 
     try:
         await bot.send_message(

@@ -28,6 +28,7 @@ from app.db.base import async_session_factory
 from app.db.repositories.feed_repo import FeedRepository
 from app.db.repositories.settings_repo import SettingsRepository
 from app.db.repositories.user_repo import UserRepository
+from app.services import bot_texts
 from app.services.notification_service import NotificationThrottle
 from app.texts import notifications as texts
 
@@ -40,9 +41,9 @@ def _build_throttle(db_session: AsyncSession) -> NotificationThrottle:
     return NotificationThrottle(settings_repo=SettingsRepository(db_session), redis=get_redis())
 
 
-def _view_likes_kb() -> InlineKeyboardMarkup:
+def _view_likes_kb(label: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text=texts.BTN_VIEW_LIKES, callback_data=MatchesMenuCb(section="incoming"))
+    builder.button(text=label, callback_data=MatchesMenuCb(section="incoming"))
     return builder.as_markup()
 
 
@@ -64,41 +65,49 @@ async def notify_like_received(
         return
 
     throttle = _build_throttle(db_session)
+    settings_repo = SettingsRepository(db_session)
     if kind == "superlike":
         if not await throttle.register_superlike(to_user_id):
             return
         # Текст суперлайка прошёл контент-модерацию до записи лайка,
         # но экранируем как любой пользовательский ввод (parse_mode=HTML).
         if superlike_message:
-            text = texts.SUPERLIKE_PUSH_WITH_MESSAGE.format(message=_html_escape(superlike_message))
+            text = await bot_texts.render_text(
+                settings_repo,
+                bot_texts.KEY_SUPERLIKE_PUSH_MSG,
+                message=_html_escape(superlike_message),
+            )
         else:
-            text = texts.SUPERLIKE_PUSH
+            text = await bot_texts.render_text(settings_repo, bot_texts.KEY_SUPERLIKE_PUSH)
     else:
         pushed_count = await throttle.register_like(to_user_id)
         if pushed_count is None:
             return
         if pushed_count == 1:
-            text = texts.LIKE_PUSH_ONE
+            text = await bot_texts.render_text(settings_repo, bot_texts.KEY_LIKE_PUSH_ONE)
         else:
-            text = texts.LIKE_PUSH_MANY.format(n=pushed_count)
+            text = await bot_texts.render_text(
+                settings_repo, bot_texts.KEY_LIKE_PUSH_MANY, n=pushed_count
+            )
 
+    btn_label = await bot_texts.get_text(settings_repo, bot_texts.KEY_BTN_VIEW_LIKES)
     try:
         await bot.send_message(
             chat_id=user.telegram_id,
             text=text,
-            reply_markup=_view_likes_kb(),
+            reply_markup=_view_likes_kb(btn_label),
         )
     except TelegramAPIError as exc:
         logger.warning("like push to user_id={} failed: {}", to_user_id, exc)
 
 
-def _open_post_kb(post_id: int) -> InlineKeyboardMarkup | None:
+def _open_post_kb(post_id: int, label: str) -> InlineKeyboardMarkup | None:
     """web_app-кнопка на страницу поста в Mini App; без MINIAPP_URL кнопки нет."""
     base = settings.miniapp_url.rstrip("/")
     if not base:
         return None
     builder = InlineKeyboardBuilder()
-    builder.button(text=texts.BTN_OPEN_POST, web_app=WebAppInfo(url=f"{base}/feed/{post_id}"))
+    builder.button(text=label, web_app=WebAppInfo(url=f"{base}/feed/{post_id}"))
     return builder.as_markup()
 
 
@@ -136,14 +145,17 @@ async def notify_post_commented_bg(
             if post is None:
                 return
             user_repo = UserRepository(session)
+            settings_repo = SettingsRepository(session)
+            btn_label = await bot_texts.get_text(settings_repo, bot_texts.KEY_BTN_OPEN_POST)
 
             if replied_author_user_id is not None and replied_author_user_id != commenter_user_id:
                 replied = await user_repo.get_by_id(replied_author_user_id)
                 if replied is not None and not replied.is_banned:
                     if await throttle.allow_comment_push(replied.id):
-                        targets.append(
-                            (replied.telegram_id, texts.REPLY_PUSH.format(preview=preview))
+                        reply_text = await bot_texts.render_text(
+                            settings_repo, bot_texts.KEY_REPLY_PUSH, preview=preview
                         )
+                        targets.append((replied.telegram_id, reply_text))
                     else:
                         logger.info(
                             "reply push to user_id={} suppressed by burst guard", replied.id
@@ -158,9 +170,10 @@ async def notify_post_commented_bg(
                 author = await user_repo.get_by_id(post_author_id)
                 if author is not None and not author.is_banned:
                     if await throttle.allow_comment_push(author.id):
-                        targets.append(
-                            (author.telegram_id, texts.COMMENT_PUSH_ONE.format(preview=preview))
+                        comment_text = await bot_texts.render_text(
+                            settings_repo, bot_texts.KEY_COMMENT_PUSH, preview=preview
                         )
+                        targets.append((author.telegram_id, comment_text))
                     else:
                         logger.info(
                             "comment push to user_id={} suppressed by burst guard", author.id
@@ -173,7 +186,7 @@ async def notify_post_commented_bg(
                 await bot.send_message(
                     chat_id=chat_id,
                     text=text,
-                    reply_markup=_open_post_kb(post_id),
+                    reply_markup=_open_post_kb(post_id, btn_label),
                     parse_mode="HTML",
                 )
             except TelegramAPIError as exc:
