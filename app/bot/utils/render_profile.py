@@ -44,6 +44,14 @@ class RenderedProfile:
 CAPTION_LIMIT = 1024
 _CAPTION_ELLIPSIS = "…"
 
+# «Умный бюджет» карточки: рендерим текст так, чтобы вместе с заголовком/бейджем,
+# который допишет хэндлер, влезть в CAPTION_LIMIT. Запас покрывает все статичные
+# заголовки; экстремальные случаи (длинное сообщение суперлайка в шапке) добьёт
+# грубый truncate_caption на месте отправки.
+_CAPTION_RESERVE = 160
+_MIN_LIST_KEEP = 1  # меньше одного элемента список не сворачиваем
+_MIN_BIO_KEEP = 40  # bio режем последним и не короче этого
+
 
 def truncate_caption(text: str, limit: int = CAPTION_LIMIT) -> str:
     """Обрезает caption до limit символов с многоточием.
@@ -65,6 +73,61 @@ def _format_list(items: list[str]) -> str:
     # любые строки из БД (в т.ч. справочники) экранируем, чтобы '<'/'&' не ломали
     # разметку и не позволяли инъекцию.
     return ", ".join(_html_escape(i) for i in items)
+
+
+def _render_list_line(label: str, escaped_titles: list[str], keep: int) -> str:
+    """Строка-список с частичным сворачиванием: «Фандомы: A, B …и ещё 7»."""
+    if not escaped_titles:
+        return f"{label}: {texts.RENDER_EMPTY_VALUE}"
+    shown = ", ".join(escaped_titles[:keep])
+    hidden = len(escaped_titles) - keep
+    if hidden <= 0:
+        return f"{label}: {shown}"
+    return f"{label}: {shown} {texts.RENDER_LIST_MORE.format(n=hidden)}"
+
+
+def _fit_card_lines(
+    lines: list[str],
+    *,
+    list_slots: dict[int, tuple[str, list[str], int]],
+    bio_slot: tuple[int, str, str],
+    budget: int,
+) -> list[str]:
+    """Сжимает карточку под budget, не трогая структурные строки.
+
+    Сначала сворачиваются списки (`list_slots`: index → (label, escaped_titles,
+    keep)) — жадно, начиная с самой длинной строки, до «…и ещё N» с минимум
+    одним видимым элементом. Если не хватило — режется bio (последним, не
+    короче _MIN_BIO_KEEP). Дальше уже дело внешнего truncate_caption.
+    """
+
+    def total() -> int:
+        return sum(len(line) for line in lines) + len(lines) - 1
+
+    slots = {idx: [label, titles, keep] for idx, (label, titles, keep) in list_slots.items()}
+    while total() > budget:
+        shrinkable = [
+            (len(lines[idx]), idx) for idx, (_, _, keep) in slots.items() if keep > _MIN_LIST_KEEP
+        ]
+        if not shrinkable:
+            break
+        _, idx = max(shrinkable)
+        slot = slots[idx]
+        slot[2] -= 1
+        lines[idx] = _render_list_line(slot[0], slot[1], slot[2])
+
+    if total() > budget:
+        bio_idx, bio_label, bio_raw = bio_slot
+        keep = len(bio_raw)
+        # Обрезка сырого bio на N символов укорачивает экранированную строку
+        # минимум на N — цикл сходится за 1-2 прохода.
+        while total() > budget and keep > _MIN_BIO_KEEP:
+            keep = max(_MIN_BIO_KEEP, keep - max(10, total() - budget))
+            lines[bio_idx] = (
+                f"{bio_label}: {_html_escape(bio_raw[:keep].rstrip())}{_CAPTION_ELLIPSIS}"
+            )
+
+    return lines
 
 
 def render_profile_card(
@@ -110,16 +173,31 @@ def render_profile_card(
     else:
         desired_vibe_str = texts.RENDER_VIBE_ANY
 
+    fandom_titles = [_html_escape(f.title) for f in fandoms]
+    desired_titles = [_html_escape(f.title) for f in desired_fandoms]
+    interest_titles = [_html_escape(i.title) for i in interests]
+
     lines: list[str] = [header]
     lines.append(f"{texts.RENDER_FIELD_GENDER}: {_html_escape(gender.title)}")
     city_str = _html_escape(profile.city) if profile.city else texts.RENDER_EMPTY_VALUE
     lines.append(f"{texts.RENDER_FIELD_CITY}: {city_str}")
+    bio_index = len(lines)
     lines.append(f"{texts.RENDER_FIELD_BIO}: {_html_escape(profile.bio)}")
-    lines.append(f"{texts.RENDER_FIELD_FANDOMS}: {_format_list([f.title for f in fandoms])}")
-    lines.append(
-        f"{texts.RENDER_FIELD_DESIRED_FANDOMS}: {_format_list([f.title for f in desired_fandoms])}"
+    list_slots: dict[int, tuple[str, list[str], int]] = {}
+    list_slots[len(lines)] = (texts.RENDER_FIELD_FANDOMS, fandom_titles, len(fandom_titles))
+    lines.append(_render_list_line(texts.RENDER_FIELD_FANDOMS, fandom_titles, len(fandom_titles)))
+    list_slots[len(lines)] = (
+        texts.RENDER_FIELD_DESIRED_FANDOMS,
+        desired_titles,
+        len(desired_titles),
     )
-    lines.append(f"{texts.RENDER_FIELD_INTERESTS}: {_format_list([i.title for i in interests])}")
+    lines.append(
+        _render_list_line(texts.RENDER_FIELD_DESIRED_FANDOMS, desired_titles, len(desired_titles))
+    )
+    list_slots[len(lines)] = (texts.RENDER_FIELD_INTERESTS, interest_titles, len(interest_titles))
+    lines.append(
+        _render_list_line(texts.RENDER_FIELD_INTERESTS, interest_titles, len(interest_titles))
+    )
     lines.append(f"{texts.RENDER_FIELD_OWN_VIBE}: {own_vibe_str}")
     lines.append(f"{texts.RENDER_FIELD_DESIRED_VIBE}: {desired_vibe_str}")
     lines.append(
@@ -131,6 +209,15 @@ def render_profile_card(
     )
     # viewer_is_self пока не меняет содержимое, но фиксируем подпись параметра.
     _ = viewer_is_self
+
+    # Умное сжатие под caption-лимит: длинные анкеты (старые, до лимитов 15/200)
+    # сворачивают списки «…и ещё N», bio режется последним; структура целая.
+    lines = _fit_card_lines(
+        lines,
+        list_slots=list_slots,
+        bio_slot=(bio_index, texts.RENDER_FIELD_BIO, profile.bio),
+        budget=CAPTION_LIMIT - _CAPTION_RESERVE,
+    )
 
     return RenderedProfile(
         text="\n".join(lines),
