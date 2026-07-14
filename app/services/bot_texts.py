@@ -54,6 +54,7 @@ KEY_REPLY_PUSH = "text_reply_push"
 KEY_BTN_VIEW_LIKES = "text_btn_view_likes"
 KEY_BTN_OPEN_POST = "text_btn_open_post"
 KEY_WELCOME = "text_welcome"
+KEY_RULES = "text_rules"
 
 # Группа «Уведомления» — редактируется из /admin → 🔔 Уведомления → ✏️ Тексты.
 NOTIF_TEXTS: tuple[EditableText, ...] = (
@@ -120,6 +121,13 @@ NOTIF_TEXTS: tuple[EditableText, ...] = (
 # Группа «Приветственные» — редактируется из /admin → ⚙️ Настройки.
 GENERAL_TEXTS: tuple[EditableText, ...] = (
     EditableText(KEY_WELCOME, "👋 Приветствие /start", common_texts.WELCOME),
+    EditableText(
+        KEY_RULES,
+        "📖 Правила / поддержка",
+        common_texts.RULES_BODY,
+        ("contact",),
+        "{contact} — контакт поддержки (настройка support_contact)",
+    ),
 )
 
 GROUPS: dict[str, tuple[EditableText, ...]] = {
