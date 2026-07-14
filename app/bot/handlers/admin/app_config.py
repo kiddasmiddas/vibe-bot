@@ -42,12 +42,17 @@ BIO_RANGE = (20, 1024)
 
 
 def _menu_kb() -> InlineKeyboardMarkup:
+    from app.texts.admin import ADMIN_MENU_BTN_DICTS, ADMIN_MENU_BTN_NOTIF
+
     b = InlineKeyboardBuilder()
+    # ⚙️ Настройки — хаб всей конфигурации: пуши, справочники, лимиты, тексты.
+    b.button(text=ADMIN_MENU_BTN_NOTIF, callback_data=AdminMenuCb(action="notifications"))
+    b.button(text=ADMIN_MENU_BTN_DICTS, callback_data=AdminMenuCb(action="dicts"))
+    b.button(text=texts.BTN_PROFILE_LIMITS, callback_data=AdminAppCfgCb(action="limits"))
     b.button(
         text=texts.BTN_GENERAL_TEXTS,
         callback_data=AdminTextsCb(action="open", group="general", idx=0),
     )
-    b.button(text=texts.BTN_PROFILE_LIMITS, callback_data=AdminAppCfgCb(action="limits"))
     b.button(text=ADMIN_MENU_BTN_BACK, callback_data=AdminMenuCb(action="menu"))
     b.adjust(1)
     return b.as_markup()

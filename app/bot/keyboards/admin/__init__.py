@@ -193,41 +193,84 @@ _SHOW_GENERAL_SETTINGS = False
 
 
 def admin_main_menu_kb() -> InlineKeyboardMarkup:
+    """Главное меню — 5 смысловых категорий вместо простыни из 13 кнопок.
+
+    Конкретные разделы живут на втором уровне (см. категорийные *_menu_kb).
+    Скрытая общая панель ключей (_SHOW_GENERAL_SETTINGS) при включении
+    добавляется отдельной кнопкой, чтобы не смешивать её с ⚙️ Настройками.
+    """
     from app.texts.admin import (
-        ADMIN_MENU_BTN_ADS,
-        ADMIN_MENU_BTN_ALLEY,
-        ADMIN_MENU_BTN_ANALYTICS,
         ADMIN_MENU_BTN_APP_CFG,
-        ADMIN_MENU_BTN_COMPLAINTS,
-        ADMIN_MENU_BTN_DICTS,
-        ADMIN_MENU_BTN_FEED,
-        ADMIN_MENU_BTN_NOTIF,
-        ADMIN_MENU_BTN_PREMIUM,
-        ADMIN_MENU_BTN_REVIEW,
         ADMIN_MENU_BTN_SETTINGS,
-        ADMIN_MENU_BTN_STOPWORDS,
-        ADMIN_MENU_BTN_USERS,
-        ADMIN_MENU_BTN_VBP,
+        CAT_ANALYTICS,
+        CAT_CONTENT,
+        CAT_MODERATION,
+        CAT_USERS,
     )
 
     b = InlineKeyboardBuilder()
-    b.button(text=ADMIN_MENU_BTN_USERS, callback_data=AdminMenuCb(action="users"))
-    b.button(text=ADMIN_MENU_BTN_COMPLAINTS, callback_data=AdminMenuCb(action="complaints"))
-    b.button(text=ADMIN_MENU_BTN_VBP, callback_data=AdminMenuCb(action="vbp_queue"))
-    b.button(text=ADMIN_MENU_BTN_ALLEY, callback_data=AdminMenuCb(action="alley"))
-    b.button(text=ADMIN_MENU_BTN_FEED, callback_data=AdminMenuCb(action="feed"))
-    b.button(text=ADMIN_MENU_BTN_PREMIUM, callback_data=AdminMenuCb(action="premium"))
-    b.button(text=ADMIN_MENU_BTN_ADS, callback_data=AdminMenuCb(action="ads"))
-    b.button(text=ADMIN_MENU_BTN_NOTIF, callback_data=AdminMenuCb(action="notifications"))
+    b.button(text=CAT_MODERATION, callback_data=AdminMenuCb(action="cat_moderation"))
+    b.button(text=CAT_USERS, callback_data=AdminMenuCb(action="cat_users"))
+    b.button(text=CAT_CONTENT, callback_data=AdminMenuCb(action="cat_content"))
     b.button(text=ADMIN_MENU_BTN_APP_CFG, callback_data=AdminMenuCb(action="app_cfg"))
-    b.button(text=ADMIN_MENU_BTN_DICTS, callback_data=AdminMenuCb(action="dicts"))
+    b.button(text=CAT_ANALYTICS, callback_data=AdminMenuCb(action="analytics"))
     if _SHOW_GENERAL_SETTINGS:
         b.button(text=ADMIN_MENU_BTN_SETTINGS, callback_data=AdminMenuCb(action="settings"))
-    b.button(text=ADMIN_MENU_BTN_REVIEW, callback_data=AdminMenuCb(action="review"))
-    b.button(text=ADMIN_MENU_BTN_STOPWORDS, callback_data=AdminMenuCb(action="stopwords"))
-    b.button(text=ADMIN_MENU_BTN_ANALYTICS, callback_data=AdminMenuCb(action="analytics"))
-    b.adjust(2)
+    b.adjust(1)
     return b.as_markup()
+
+
+def _cat_kb(items: list[tuple[str, str]]) -> InlineKeyboardMarkup:
+    """Клавиатура категории: список (текст, action) + «Назад» в главное меню."""
+    from app.texts.admin import ADMIN_MENU_BTN_BACK
+
+    b = InlineKeyboardBuilder()
+    for text, action in items:
+        b.button(text=text, callback_data=AdminMenuCb(action=action))
+    b.button(text=ADMIN_MENU_BTN_BACK, callback_data=AdminMenuCb(action="menu"))
+    b.adjust(1)
+    return b.as_markup()
+
+
+def admin_cat_moderation_kb() -> InlineKeyboardMarkup:
+    from app.texts.admin import (
+        ADMIN_MENU_BTN_COMPLAINTS,
+        ADMIN_MENU_BTN_REVIEW,
+        ADMIN_MENU_BTN_STOPWORDS,
+        ADMIN_MENU_BTN_VBP,
+    )
+
+    return _cat_kb(
+        [
+            (ADMIN_MENU_BTN_COMPLAINTS, "complaints"),
+            (ADMIN_MENU_BTN_REVIEW, "review"),
+            (ADMIN_MENU_BTN_VBP, "vbp_queue"),
+            (ADMIN_MENU_BTN_STOPWORDS, "stopwords"),
+        ]
+    )
+
+
+def admin_cat_users_kb() -> InlineKeyboardMarkup:
+    from app.texts.admin import ADMIN_MENU_BTN_PREMIUM, ADMIN_MENU_BTN_USERS
+
+    return _cat_kb(
+        [
+            (ADMIN_MENU_BTN_USERS, "users"),
+            (ADMIN_MENU_BTN_PREMIUM, "premium"),
+        ]
+    )
+
+
+def admin_cat_content_kb() -> InlineKeyboardMarkup:
+    from app.texts.admin import ADMIN_MENU_BTN_ADS, ADMIN_MENU_BTN_ALLEY, ADMIN_MENU_BTN_FEED
+
+    return _cat_kb(
+        [
+            (ADMIN_MENU_BTN_FEED, "feed"),
+            (ADMIN_MENU_BTN_ALLEY, "alley"),
+            (ADMIN_MENU_BTN_ADS, "ads"),
+        ]
+    )
 
 
 def users_menu_kb() -> InlineKeyboardMarkup:

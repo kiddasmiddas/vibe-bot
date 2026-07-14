@@ -15,6 +15,9 @@ import pytest
 from app.bot.keyboards.admin import (
     AdminMenuCb,
     admin_back_home_kb,
+    admin_cat_content_kb,
+    admin_cat_moderation_kb,
+    admin_cat_users_kb,
     admin_main_menu_kb,
     alley_duration_kb,
     alley_main_kb,
@@ -62,6 +65,9 @@ _KEYBOARDS_WITH_HOME = [
     ("feed_admin_menu_kb", feed_admin_menu_kb()),
     ("feed_post_actions_kb", feed_post_actions_kb(1, is_pending=True)),
     ("analytics_kb", analytics_kb()),
+    ("admin_cat_moderation_kb", admin_cat_moderation_kb()),
+    ("admin_cat_users_kb", admin_cat_users_kb()),
+    ("admin_cat_content_kb", admin_cat_content_kb()),
 ]
 
 
@@ -84,6 +90,33 @@ def test_admin_main_menu_kb_has_no_return_button() -> None:
     """Корневой экран /admin — точка возврата, кнопки «домой» у него быть не должно."""
     menu_cb = AdminMenuCb(action="menu").pack()
     assert menu_cb not in _callbacks(admin_main_menu_kb())
+
+
+def test_admin_main_menu_is_five_categories() -> None:
+    """Главное меню — ровно 5 категорий (минимализм вместо простыни кнопок)."""
+    actions = [AdminMenuCb.unpack(cb).action for cb in _callbacks(admin_main_menu_kb())]
+    assert actions == ["cat_moderation", "cat_users", "cat_content", "app_cfg", "analytics"]
+
+
+def test_categories_cover_all_leaf_sections() -> None:
+    """Каждый прежний раздел доступен из какой-то категории (ничего не потеряли)."""
+    leaf_actions: set[str] = set()
+    for kb in (admin_cat_moderation_kb(), admin_cat_users_kb(), admin_cat_content_kb()):
+        for cb in _callbacks(kb):
+            leaf_actions.add(AdminMenuCb.unpack(cb).action)
+    # Разделы, которые должны быть достижимы через категории верхнего уровня.
+    expected = {
+        "complaints",
+        "review",
+        "vbp_queue",
+        "stopwords",  # Модерация
+        "users",
+        "premium",  # Пользователи
+        "feed",
+        "alley",
+        "ads",  # Контент
+    }
+    assert expected <= leaf_actions
 
 
 def test_admin_back_home_kb_single_button() -> None:

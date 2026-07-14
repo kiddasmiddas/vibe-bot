@@ -18,6 +18,15 @@ ADMIN_MENU_BTN_DICTS = "Справочники"
 # с кураторским разделом «⚙️ Настройки» (ADMIN_MENU_BTN_APP_CFG).
 ADMIN_MENU_BTN_SETTINGS = "Настройки"
 ADMIN_MENU_BTN_APP_CFG = "⚙️ Настройки"
+
+# --- Категории главного админ-меню (5 разделов вместо простыни кнопок) ---
+CAT_MODERATION = "🛡 Модерация"
+CAT_USERS = "👥 Пользователи"
+CAT_CONTENT = "📢 Контент"
+CAT_ANALYTICS = "📊 Аналитика"
+CAT_MODERATION_TITLE = "🛡 <b>Модерация</b>\n\nЖалобы, очередь проверки, запросы вайба, стоп-листы."
+CAT_USERS_TITLE = "👥 <b>Пользователи</b>\n\nПоиск и бан пользователей, выдача Premium."
+CAT_CONTENT_TITLE = "📢 <b>Контент</b>\n\nЛента, Аллея креаторов, авто-реклама."
 ADMIN_MENU_BTN_REVIEW = "На проверке"
 ADMIN_MENU_BTN_STOPWORDS = "Стоп-листы"
 ADMIN_MENU_BTN_ANALYTICS = "Аналитика"

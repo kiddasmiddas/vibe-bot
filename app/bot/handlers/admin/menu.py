@@ -8,12 +8,30 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from app.bot.handlers.admin._helpers import ensure_admin, is_admin
-from app.bot.keyboards.admin import AdminMenuCb, admin_main_menu_kb
+from app.bot.handlers.admin._helpers import ensure_admin, is_admin, show_screen
+from app.bot.keyboards.admin import (
+    AdminMenuCb,
+    admin_cat_content_kb,
+    admin_cat_moderation_kb,
+    admin_cat_users_kb,
+    admin_main_menu_kb,
+)
 from app.db.models.user import User
-from app.texts.admin import ADMIN_MENU_TITLE
+from app.texts.admin import (
+    ADMIN_MENU_TITLE,
+    CAT_CONTENT_TITLE,
+    CAT_MODERATION_TITLE,
+    CAT_USERS_TITLE,
+)
 
 router = Router(name="admin.menu")
+
+# Категория верхнего уровня → (заголовок экрана, фабрика клавиатуры).
+_CATEGORIES = {
+    "cat_moderation": (CAT_MODERATION_TITLE, admin_cat_moderation_kb),
+    "cat_users": (CAT_USERS_TITLE, admin_cat_users_kb),
+    "cat_content": (CAT_CONTENT_TITLE, admin_cat_content_kb),
+}
 
 
 @router.message(Command("admin"))
@@ -22,6 +40,21 @@ async def cmd_admin(message: Message, user: User) -> None:
     if not await ensure_admin(message, user):
         return
     await message.answer(ADMIN_MENU_TITLE, reply_markup=admin_main_menu_kb())
+
+
+@router.callback_query(AdminMenuCb.filter(F.action.in_(_CATEGORIES)))
+async def cb_open_category(
+    callback: CallbackQuery, callback_data: AdminMenuCb, user: User, state: FSMContext
+) -> None:
+    """Открыть категорию верхнего уровня (Модерация / Пользователи / Контент)."""
+    if not is_admin(user):
+        await callback.answer()
+        return
+    await state.clear()
+    await callback.answer()
+    title, kb_factory = _CATEGORIES[callback_data.action]
+    if callback.message:
+        await show_screen(callback.message, text=title, reply_markup=kb_factory())
 
 
 @router.callback_query(AdminMenuCb.filter(F.action == "menu"))
