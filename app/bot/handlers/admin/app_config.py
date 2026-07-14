@@ -25,12 +25,11 @@ from app.bot.keyboards.admin import (
 from app.bot.states.admin import AdminAppCfgStates
 from app.db.models.user import User
 from app.db.repositories.settings_repo import (
-    DEFAULT_BIO_MAX_LENGTH,
-    DEFAULT_FANDOMS_MAX_SELECTED,
     SETTING_BIO_MAX_LENGTH,
     SETTING_FANDOMS_MAX_SELECTED,
     SettingsRepository,
 )
+from app.services.profile_limits import bio_max_length, fandoms_max_selected
 from app.texts import bot_texts_admin as texts
 from app.texts.admin import ADMIN_MENU_BTN_BACK
 
@@ -40,11 +39,6 @@ router = Router(name="admin.app_config")
 # даст пройти регистрацию; bio > 1024 гарантированно не влезет в caption).
 FANDOMS_RANGE = (1, 50)
 BIO_RANGE = (20, 1024)
-
-
-async def _limit(db_session: AsyncSession, key: str, default: int) -> int:
-    value = await SettingsRepository(db_session).get_int(key)
-    return value if value is not None and value > 0 else default
 
 
 def _menu_kb() -> InlineKeyboardMarkup:
@@ -81,10 +75,8 @@ def _back_to_limits_kb() -> InlineKeyboardMarkup:
 
 
 async def _render_limits(message: Message, db_session: AsyncSession) -> None:
-    fandoms_max = await _limit(
-        db_session, SETTING_FANDOMS_MAX_SELECTED, DEFAULT_FANDOMS_MAX_SELECTED
-    )
-    bio_max = await _limit(db_session, SETTING_BIO_MAX_LENGTH, DEFAULT_BIO_MAX_LENGTH)
+    fandoms_max = await fandoms_max_selected(db_session)
+    bio_max = await bio_max_length(db_session)
     await show_screen(
         message,
         text=texts.LIMITS_MENU.format(fandoms_max=fandoms_max, bio_max=bio_max),
@@ -124,7 +116,7 @@ async def cb_ask_fandoms_max(
     if not is_admin(user):
         await callback.answer()
         return
-    current = await _limit(db_session, SETTING_FANDOMS_MAX_SELECTED, DEFAULT_FANDOMS_MAX_SELECTED)
+    current = await fandoms_max_selected(db_session)
     await state.set_state(AdminAppCfgStates.ask_fandoms_max)
     await callback.answer()
     if callback.message:
@@ -142,7 +134,7 @@ async def cb_ask_bio_max(
     if not is_admin(user):
         await callback.answer()
         return
-    current = await _limit(db_session, SETTING_BIO_MAX_LENGTH, DEFAULT_BIO_MAX_LENGTH)
+    current = await bio_max_length(db_session)
     await state.set_state(AdminAppCfgStates.ask_bio_max)
     await callback.answer()
     if callback.message:

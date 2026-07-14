@@ -75,7 +75,10 @@ def _card_text(group: str, idx: int, override: str | None) -> str:
     else:
         current = _html_escape(spec.default)
         origin = texts.CARD_ORIGIN_DEFAULT
-    return texts.TEXT_CARD.format(
+    # Нативная цитата внутри оверрайда → внешний <blockquote> дал бы вложенность,
+    # которую HTML-парсер Telegram отклоняет: показываем без обёртки.
+    template = texts.TEXT_CARD_NOQUOTE if "<blockquote" in current else texts.TEXT_CARD
+    return template.format(
         label=_html_escape(spec.label),
         pos=idx + 1,
         total=len(GROUPS[group]),

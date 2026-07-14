@@ -9,6 +9,12 @@ TEXT_CARD = (
     "Подстановки: {hint}\n"
     "{origin}"
 )
+# Вариант без внешней цитаты: если оверрайд админа сам содержит нативную
+# цитату (<blockquote>), вложенность ломает HTML-парсер Telegram — показываем
+# текст без обёртки.
+TEXT_CARD_NOQUOTE = (
+    "✏️ <b>{label}</b> ({pos}/{total})\n\nСейчас:\n{current}\n\nПодстановки: {hint}\n{origin}"
+)
 CARD_ORIGIN_DEFAULT = "Используется стандартный текст."
 CARD_ORIGIN_OVERRIDE = "Текст изменён (можно вернуть стандартный)."
 BTN_PREV_TEXT = "◀️ Назад"

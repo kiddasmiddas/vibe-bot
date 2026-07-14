@@ -88,6 +88,20 @@ async def test_bio_limit_saved(db_session) -> None:
     assert await SettingsRepository(db_session).get_int(SETTING_BIO_MAX_LENGTH) == 300
 
 
+@pytest.mark.asyncio
+async def test_bio_limit_rejects_out_of_range(db_session) -> None:
+    admin = await _make_admin(db_session)
+    state = _fsm(admin.telegram_id)
+    await state.set_state(AdminAppCfgStates.ask_bio_max)
+    before = await SettingsRepository(db_session).get_int(SETTING_BIO_MAX_LENGTH)
+
+    for bad in ("19", "1025", "abc", "-1"):
+        await on_bio_max(_mock_message(bad), state, admin, db_session)
+
+    assert await SettingsRepository(db_session).get_int(SETTING_BIO_MAX_LENGTH) == before
+    assert await state.get_state() == AdminAppCfgStates.ask_bio_max.state
+
+
 # --------------------------- лимит в мульти-селекте ---------------------------
 
 

@@ -437,10 +437,13 @@ class FeedRepository:
 
         DELETE FROM feed_posts
         WHERE status IN ('expired','hidden_by_moderator','deleted_by_user','blocked')
-        AND expires_at < before
+        AND (expires_at < before OR (expires_at IS NULL AND created_at < before))
         AND created_at < keep_created_since.
         CASCADE удалит связанные media/comments/reactions.
         Возвращает количество удалённых строк.
+
+        `expires_at IS NULL` — «вечные» посты (feed_post_ttl_hours=0): их возраст
+        меряем по created_at, иначе скрытые/удалённые вечные копились бы вечно.
 
         `keep_created_since` — начало текущего календарного месяца: посты этого
         месяца НЕ удаляются, даже если уже истекли, чтобы месячный лимит постов

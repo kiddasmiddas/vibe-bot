@@ -55,11 +55,16 @@ def test_extract_placeholders_variants() -> None:
     assert extract_placeholders("без подстановок") == set()
     assert extract_placeholders("лайков: {n}") == {"n"}
     assert extract_placeholders("{{литеральные}} скобки") == set()
-    # Битые скобки → None.
+    # Любая недопустимая скобочная конструкция → None (нельзя сохранять).
     assert extract_placeholders("оборванная {") is None
-    # Позиционный `{}` и доступ к атрибутам не совпадут с allowed-списком.
-    assert extract_placeholders("{}") == {""}
-    assert extract_placeholders("{n.__class__}") == {"n.__class__"}
+    assert extract_placeholders("непарная }") is None
+    assert extract_placeholders("{}") is None
+    assert extract_placeholders("{n.__class__}") is None
+    # Вложенное поле в format-spec (вектор width-инъекции) — тоже None.
+    assert extract_placeholders("{nickname:{message}}") is None
+    # `{0}` синтаксически валиден (имя = "0"), но не совпадёт с allow-списком
+    # ни одного текста → validate_override отклонит его как unknown.
+    assert extract_placeholders("{0}") == {"0"}
 
 
 # --------------------------- validate_override ---------------------------
@@ -115,17 +120,40 @@ async def test_render_text_formats_override() -> None:
 
 
 @pytest.mark.asyncio
-async def test_render_text_falls_back_on_broken_override() -> None:
-    """Кривой шаблон в БД (мимо валидации) → дефолт, не исключение."""
+async def test_render_text_unknown_placeholder_left_literal() -> None:
+    """Кривой шаблон в БД (мимо валидации) → неизвестное поле остаётся как есть,
+    без исключения и без раскрытия чужих значений."""
     key = bot_texts.KEY_LIKE_PUSH_MANY
-    spec = REGISTRY[key]
-    repo = _StubSettings({key: "Лайков: {oops}"})
-    assert await render_text(repo, key, n=3) == spec.default.format(n=3)
+    repo = _StubSettings({key: "Лайков: {oops} ({n})"})
+    assert await render_text(repo, key, n=3) == "Лайков: {oops} (3)"
 
 
 @pytest.mark.asyncio
-async def test_render_text_without_kwargs_keeps_literal_braces() -> None:
+async def test_render_text_collapses_literal_braces_without_kwargs() -> None:
+    """`{{`/`}}` схлопываются в литералы даже у текста без плейсхолдеров
+    (закрыта Medium из ревью: раньше уходили задвоенными)."""
     key = bot_texts.KEY_WELCOME
     repo = _StubSettings({key: "Привет {{друг}}"})
-    # Без kwargs подстановка не вызывается — текст уходит как сохранён.
-    assert await render_text(repo, key) == "Привет {{друг}}"
+    assert await render_text(repo, key) == "Привет {друг}"
+
+
+@pytest.mark.asyncio
+async def test_render_text_no_format_spec_injection() -> None:
+    """Вложенное поле в format-spec не раскрывается: длинная цифровая строка
+    юзера НЕ превращается в width-аллокацию (safe_substitute вместо .format)."""
+    key = bot_texts.KEY_MATCH_PUSH_MSG
+    repo = _StubSettings({key: "{nickname:{message}}"})
+    # `.format` трактовал бы message="9"*9 как ширину → строка в 10^9 символов.
+    # safe_substitute лишь подставляет {message} как текст: никакой аллокации.
+    result = await render_text(repo, key, nickname="Боб", message="9" * 9)
+    assert len(result) < 100
+    assert "999999999" in result  # подставлено как литерал, не как width
+
+
+@pytest.mark.asyncio
+async def test_render_text_clamps_to_telegram_limit() -> None:
+    """Итог не превышает 4096 даже при раздутой подстановке."""
+    key = bot_texts.KEY_SUPERLIKE_PUSH_MSG
+    repo = _StubSettings({key: "Сообщение: {message}"})
+    result = await render_text(repo, key, message="x" * 5000)
+    assert len(result) <= bot_texts.TELEGRAM_MESSAGE_LIMIT
