@@ -55,8 +55,9 @@ class AdminNotifCb(CallbackData, prefix="adm_ntf"):
 class AdminTextsCb(CallbackData, prefix="adm_txt"):
     """Редактор текстов бота (✏️ Тексты): карусель карточек «одна за другой».
 
-    action: open|edit|reset|noop; group — группа реестра bot_texts
-    (notif|general), idx — позиция текста в группе (open листает ◀️/▶️).
+    action: open|edit|edit_btn|reset|reset_btn|noop; group — группа реестра
+    bot_texts (notif|general), idx — позиция текста в группе (open листает
+    ◀️/▶️). edit_btn/reset_btn действуют на связанную inline-кнопку карточки.
     """
 
     action: str

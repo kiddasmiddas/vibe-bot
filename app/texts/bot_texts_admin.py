@@ -5,7 +5,8 @@ from __future__ import annotations
 # --- Карусель редактируемых текстов: карточки листаются одна за другой ---
 TEXT_CARD = (
     "✏️ <b>{label}</b> ({pos}/{total})\n\n"
-    "Сейчас:\n<blockquote>{current}</blockquote>\n\n"
+    "Сейчас:\n<blockquote>{current}</blockquote>\n"
+    "{button_line}"
     "Подстановки: {hint}\n"
     "{origin}"
 )
@@ -13,14 +14,22 @@ TEXT_CARD = (
 # цитату (<blockquote>), вложенность ломает HTML-парсер Telegram — показываем
 # текст без обёртки.
 TEXT_CARD_NOQUOTE = (
-    "✏️ <b>{label}</b> ({pos}/{total})\n\nСейчас:\n{current}\n\nПодстановки: {hint}\n{origin}"
+    "✏️ <b>{label}</b> ({pos}/{total})\n\n"
+    "Сейчас:\n{current}\n"
+    "{button_line}"
+    "Подстановки: {hint}\n"
+    "{origin}"
 )
+# Строка о тексте кнопки под сообщением (подставляется в {button_line}).
+CARD_BUTTON_LINE = "Кнопка под сообщением: «{button}»\n"
 CARD_ORIGIN_DEFAULT = "Используется стандартный текст."
 CARD_ORIGIN_OVERRIDE = "Текст изменён (можно вернуть стандартный)."
 BTN_PREV_TEXT = "◀️ Назад"
 BTN_NEXT_TEXT = "Вперёд ▶️"
-BTN_EDIT_TEXT = "✏️ Редактировать"
-BTN_RESET_TEXT = "↩️ Вернуть стандартный"
+BTN_EDIT_TEXT = "✏️ Редактировать текст"
+BTN_EDIT_BUTTON = "✏️ Редактировать кнопку"
+BTN_RESET_TEXT = "↩️ Вернуть стандартный текст"
+BTN_RESET_BUTTON = "↩️ Вернуть стандартную кнопку"
 
 # --- Ввод нового текста ---
 ASK_NEW_TEXT = (

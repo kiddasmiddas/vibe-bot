@@ -34,18 +34,42 @@ class _StubSettings:
 
 
 def test_registry_consistent() -> None:
-    """Ключи уникальны, дефолты содержат ровно объявленные плейсхолдеры."""
-    all_specs = [s for group in GROUPS.values() for s in group]
+    """Ключи уникальны, дефолты содержат ровно объявленные плейсхолдеры.
+
+    REGISTRY = карусельные группы + BUTTON_TEXTS (кнопки в реестре, но не
+    листаются отдельными карточками)."""
+    all_specs = [
+        *(s for group in GROUPS.values() for s in group),
+        *bot_texts.BUTTON_TEXTS,
+    ]
     assert len(all_specs) == len(REGISTRY)
     for spec in all_specs:
         assert extract_placeholders(spec.default) == set(spec.placeholders)
 
 
 def test_buttons_marked_and_short() -> None:
-    for key in (bot_texts.KEY_BTN_VIEW_LIKES, bot_texts.KEY_BTN_OPEN_POST):
+    for key in (
+        bot_texts.KEY_BTN_VIEW_LIKES,
+        bot_texts.KEY_BTN_OPEN_POST,
+        bot_texts.KEY_BTN_OPEN_PROFILE,
+    ):
         spec = REGISTRY[key]
         assert spec.is_button is True
         assert spec.max_len == bot_texts.MAX_LEN_BUTTON
+
+
+def test_buttons_not_in_carousel() -> None:
+    """Кнопки редактируются через button_key карточки, не отдельными карточками."""
+    carousel_keys = {s.key for group in GROUPS.values() for s in group}
+    for spec in bot_texts.BUTTON_TEXTS:
+        assert spec.key not in carousel_keys
+
+
+def test_every_push_button_key_resolves() -> None:
+    """button_key каждого пуша указывает на существующую кнопку в реестре."""
+    for spec in GROUPS["notif"]:
+        if spec.button_key is not None:
+            assert REGISTRY[spec.button_key].is_button is True
 
 
 # --------------------------- extract_placeholders ---------------------------

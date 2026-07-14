@@ -45,6 +45,10 @@ class EditableText:
     # message.text; для сообщений — message.html_text (форматирование админа
     # сохраняется, спецсимволы экранирует aiogram).
     is_button: bool = False
+    # Ключ inline-кнопки под этим сообщением (если есть): на карточке карусели
+    # появляется вторая кнопка «✏️ Кнопка», редактирующая её текст. Сами кнопки
+    # живут в BUTTON_TEXTS (в реестре, но не листаются отдельными карточками).
+    button_key: str | None = None
 
 
 # Ключи app_settings редактируемых текстов (используются на местах отправки).
@@ -58,26 +62,41 @@ KEY_COMMENT_PUSH = "text_comment_push"
 KEY_REPLY_PUSH = "text_reply_push"
 KEY_BTN_VIEW_LIKES = "text_btn_view_likes"
 KEY_BTN_OPEN_POST = "text_btn_open_post"
+KEY_BTN_OPEN_PROFILE = "text_btn_open_profile"
 KEY_WELCOME = "text_welcome"
 KEY_RULES = "text_rules"
 
 # Группа «Уведомления» — редактируется из /admin → 🔔 Уведомления → ✏️ Тексты.
+# `button_key` связывает пуш с его inline-кнопкой: на карточке появляется вторая
+# кнопка «✏️ Кнопка», а сами кнопки не листаются отдельными карточками.
 NOTIF_TEXTS: tuple[EditableText, ...] = (
-    EditableText(KEY_LIKE_PUSH_ONE, "❤️ Лайк (разовое)", notif_texts.LIKE_PUSH_ONE),
+    EditableText(
+        KEY_LIKE_PUSH_ONE,
+        "❤️ Лайк (разовое)",
+        notif_texts.LIKE_PUSH_ONE,
+        button_key=KEY_BTN_VIEW_LIKES,
+    ),
     EditableText(
         KEY_LIKE_PUSH_MANY,
         "❤️ Лайки — сводка",
         notif_texts.LIKE_PUSH_MANY,
         ("n",),
         "{n} — число новых лайков",
+        button_key=KEY_BTN_VIEW_LIKES,
     ),
-    EditableText(KEY_SUPERLIKE_PUSH, "⭐ Суперлайк", notif_texts.SUPERLIKE_PUSH),
+    EditableText(
+        KEY_SUPERLIKE_PUSH,
+        "⭐ Суперлайк",
+        notif_texts.SUPERLIKE_PUSH,
+        button_key=KEY_BTN_VIEW_LIKES,
+    ),
     EditableText(
         KEY_SUPERLIKE_PUSH_MSG,
         "⭐ Суперлайк с сообщением",
         notif_texts.SUPERLIKE_PUSH_WITH_MESSAGE,
         ("message",),
         "{message} — сообщение отправителя",
+        button_key=KEY_BTN_VIEW_LIKES,
     ),
     EditableText(
         KEY_MATCH_PUSH,
@@ -85,6 +104,7 @@ NOTIF_TEXTS: tuple[EditableText, ...] = (
         matching_texts.MATCH_HEADER,
         ("nickname",),
         "{nickname} — ник второго участника",
+        button_key=KEY_BTN_OPEN_PROFILE,
     ),
     EditableText(
         KEY_MATCH_PUSH_MSG,
@@ -92,6 +112,7 @@ NOTIF_TEXTS: tuple[EditableText, ...] = (
         matching_texts.MATCH_WITH_MESSAGE,
         ("nickname", "message"),
         "{nickname} — ник второго участника, {message} — сообщение",
+        button_key=KEY_BTN_OPEN_PROFILE,
     ),
     EditableText(
         KEY_COMMENT_PUSH,
@@ -99,6 +120,7 @@ NOTIF_TEXTS: tuple[EditableText, ...] = (
         notif_texts.COMMENT_PUSH_ONE,
         ("preview",),
         "{preview} — начало комментария",
+        button_key=KEY_BTN_OPEN_POST,
     ),
     EditableText(
         KEY_REPLY_PUSH,
@@ -106,20 +128,7 @@ NOTIF_TEXTS: tuple[EditableText, ...] = (
         notif_texts.REPLY_PUSH,
         ("preview",),
         "{preview} — начало ответа",
-    ),
-    EditableText(
-        KEY_BTN_VIEW_LIKES,
-        "Кнопка «Посмотреть»",
-        notif_texts.BTN_VIEW_LIKES,
-        max_len=MAX_LEN_BUTTON,
-        is_button=True,
-    ),
-    EditableText(
-        KEY_BTN_OPEN_POST,
-        "Кнопка «Открыть пост»",
-        notif_texts.BTN_OPEN_POST,
-        max_len=MAX_LEN_BUTTON,
-        is_button=True,
+        button_key=KEY_BTN_OPEN_POST,
     ),
 )
 
@@ -135,12 +144,40 @@ GENERAL_TEXTS: tuple[EditableText, ...] = (
     ),
 )
 
+# Тексты inline-кнопок под пушами. В реестре (доступны get_text и редактору
+# через button_key), но НЕ листаются каруселью отдельными карточками.
+BUTTON_TEXTS: tuple[EditableText, ...] = (
+    EditableText(
+        KEY_BTN_VIEW_LIKES,
+        "Кнопка «Посмотреть»",
+        notif_texts.BTN_VIEW_LIKES,
+        max_len=MAX_LEN_BUTTON,
+        is_button=True,
+    ),
+    EditableText(
+        KEY_BTN_OPEN_POST,
+        "Кнопка «Открыть пост»",
+        notif_texts.BTN_OPEN_POST,
+        max_len=MAX_LEN_BUTTON,
+        is_button=True,
+    ),
+    EditableText(
+        KEY_BTN_OPEN_PROFILE,
+        "Кнопка «Открыть профиль»",
+        matching_texts.BTN_OPEN_PROFILE,
+        max_len=MAX_LEN_BUTTON,
+        is_button=True,
+    ),
+)
+
 GROUPS: dict[str, tuple[EditableText, ...]] = {
     "notif": NOTIF_TEXTS,
     "general": GENERAL_TEXTS,
 }
 
-REGISTRY: dict[str, EditableText] = {t.key: t for t in (*NOTIF_TEXTS, *GENERAL_TEXTS)}
+REGISTRY: dict[str, EditableText] = {
+    t.key: t for t in (*NOTIF_TEXTS, *GENERAL_TEXTS, *BUTTON_TEXTS)
+}
 
 
 # Единственная легальная форма плейсхолдера — `{имя}` (имя = [A-Za-z0-9_]+);

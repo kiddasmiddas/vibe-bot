@@ -107,19 +107,19 @@ def _build_matching_service(db_session: AsyncSession) -> MatchingService:
     )
 
 
-def _open_profile_kb(target_user: User) -> InlineKeyboardMarkup:
+def _open_profile_kb(target_user: User, label: str) -> InlineKeyboardMarkup:
     """Кнопка-ссылка «Открыть профиль». Если у пользователя есть username —
     используем `t.me/<username>`, иначе — `tg://user?id=<telegram_id>`.
 
     `tg://user?id=...` работает только если получатель сам существует в Telegram
-    (нет публичного раскрытия) — это безопасно.
+    (нет публичного раскрытия) — это безопасно. `label` — редактируемый текст.
     """
     if target_user.username:
         url = f"https://t.me/{target_user.username}"
     else:
         url = f"tg://user?id={target_user.telegram_id}"
     builder = InlineKeyboardBuilder()
-    builder.button(text=texts.BTN_OPEN_PROFILE, url=url)
+    builder.button(text=label, url=url)
     return builder.as_markup()
 
 
@@ -179,12 +179,15 @@ async def _send_match_notifications(
     text_for_other = await _format_match_notification(
         db_session, initiator_profile.nickname, initial_message
     )
+    btn_label = await bot_texts.get_text(
+        SettingsRepository(db_session), bot_texts.KEY_BTN_OPEN_PROFILE
+    )
 
     try:
         await bot.send_message(
             chat_id=initiator_user.telegram_id,
             text=text_for_initiator,
-            reply_markup=_open_profile_kb(other_user),
+            reply_markup=_open_profile_kb(other_user, btn_label),
         )
     except TelegramAPIError as exc:  # pragma: no cover — telegram-сеть
         logger.warning("Failed to send match notification to initiator: {}", exc)
@@ -193,7 +196,7 @@ async def _send_match_notifications(
         await bot.send_message(
             chat_id=other_user.telegram_id,
             text=text_for_other,
-            reply_markup=_open_profile_kb(initiator_user),
+            reply_markup=_open_profile_kb(initiator_user, btn_label),
         )
     except TelegramAPIError as exc:  # pragma: no cover — telegram-сеть
         logger.warning("Failed to send match notification to other: {}", exc)

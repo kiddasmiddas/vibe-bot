@@ -109,8 +109,9 @@ async def test_edit_saves_override_and_clears_state(db_session) -> None:
 async def test_edit_rejects_unknown_placeholder_and_keeps_state(db_session) -> None:
     admin = await _make_admin(db_session)
     state = _fsm(admin.telegram_id)
+    idx = _idx_of(bot_texts.KEY_LIKE_PUSH_MANY)
     await state.set_state(AdminTextsStates.ask_value)
-    await state.update_data(text_group="notif", text_idx=_idx_of(bot_texts.KEY_LIKE_PUSH_MANY))
+    await state.update_data(text_group="notif", text_idx=idx, text_key=bot_texts.KEY_LIKE_PUSH_MANY)
 
     message = _mock_message(text="Лайков: {count}")
     await on_texts_new_value(message, state, admin, db_session)
@@ -121,17 +122,40 @@ async def test_edit_rejects_unknown_placeholder_and_keeps_state(db_session) -> N
 
 
 @pytest.mark.asyncio
-async def test_button_text_saved_plain_not_html(db_session) -> None:
-    """Для кнопок хранится message.text: html_text-обёртки не попадают в лейбл."""
+async def test_edit_button_via_edit_btn_saves_linked_button(db_session) -> None:
+    """«✏️ Редактировать кнопку» на карточке пуша правит связанный button_key."""
     admin = await _make_admin(db_session)
     state = _fsm(admin.telegram_id)
-    await state.set_state(AdminTextsStates.ask_value)
-    await state.update_data(text_group="notif", text_idx=_idx_of(bot_texts.KEY_BTN_VIEW_LIKES))
+    idx = _idx_of(bot_texts.KEY_LIKE_PUSH_ONE)  # у лайка кнопка «Посмотреть»
+    callback = _mock_callback()
+
+    await cb_texts_edit(
+        callback, AdminTextsCb(action="edit_btn", group="notif", idx=idx), admin, state
+    )
+    data = await state.get_data()
+    assert data["text_key"] == bot_texts.KEY_BTN_VIEW_LIKES
 
     message = _mock_message(text="Глянуть", html_text="<b>Глянуть</b>")
     await on_texts_new_value(message, state, admin, db_session)
 
+    # Для кнопки хранится plain message.text (без HTML-обёртки).
     assert await SettingsRepository(db_session).get(bot_texts.KEY_BTN_VIEW_LIKES) == "Глянуть"
+    assert await state.get_state() is None
+
+
+@pytest.mark.asyncio
+async def test_reset_button_via_reset_btn(db_session) -> None:
+    admin = await _make_admin(db_session)
+    repo = SettingsRepository(db_session)
+    await repo.set(bot_texts.KEY_BTN_OPEN_POST, "Тык")
+    idx = _idx_of(bot_texts.KEY_COMMENT_PUSH)  # у коммента кнопка «Открыть пост»
+    callback = _mock_callback()
+
+    await cb_texts_reset(
+        callback, AdminTextsCb(action="reset_btn", group="notif", idx=idx), admin, db_session
+    )
+
+    assert await repo.get(bot_texts.KEY_BTN_OPEN_POST) is None
 
 
 @pytest.mark.asyncio
@@ -154,7 +178,7 @@ async def test_non_admin_cannot_save(db_session) -> None:
     user = await UserRepository(db_session).create(telegram_id=97002)  # не админ
     state = _fsm(user.telegram_id)
     await state.set_state(AdminTextsStates.ask_value)
-    await state.update_data(text_group="notif", text_idx=0)
+    await state.update_data(text_group="notif", text_idx=0, text_key=GROUPS["notif"][0].key)
 
     message = _mock_message(text="Хакнул")
     await on_texts_new_value(message, state, user, db_session)
