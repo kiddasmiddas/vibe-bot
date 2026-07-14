@@ -111,9 +111,29 @@ async def cb_users_menu(
     callback: CallbackQuery,
     user: User,
     state: FSMContext,
+) -> None:
+    """Открывает раздел «Пользователи»: меню из двух кнопок (выгрузка + поиск).
+
+    Файл больше НЕ выгружается автоматически при входе — только по кнопке
+    «📤 Выгрузить всех», чтобы не спамить документом на каждом открытии.
+    """
+    if not is_admin(user):
+        await callback.answer()
+        return
+    await state.clear()
+    await callback.answer()
+    if callback.message:
+        await show_screen(callback.message, text=USERS_MENU, reply_markup=users_menu_kb())
+
+
+@router.callback_query(AdminUserActionCb.filter(F.action == "export"))
+async def cb_users_export(
+    callback: CallbackQuery,
+    user: User,
+    state: FSMContext,
     db_session: AsyncSession,
 ) -> None:
-    """Открывает раздел «Пользователи»: выгружает список файлом + кнопка «Поиск»."""
+    """Кнопка «Выгрузить всех» — отдаёт CSV-файл со всеми пользователями."""
     if not is_admin(user):
         await callback.answer()
         return
@@ -124,15 +144,12 @@ async def cb_users_menu(
 
     rows = await AdminRepository(db_session).list_all_users_for_export()
     if not rows:
-        await show_screen(callback.message, text=USERS_LIST_EMPTY, reply_markup=users_menu_kb())
+        await callback.message.answer(USERS_LIST_EMPTY, reply_markup=users_menu_kb())
         return
 
     csv_bytes = _build_users_csv(rows)
     stamp = datetime.now(tz=UTC).strftime("%Y-%m-%d_%H-%M")
     document = BufferedInputFile(csv_bytes, filename=f"users_{stamp}.csv")
-    # Меню отправляем через show_screen (редактирует текущее), документ — отдельным answer
-    # (documents нельзя edit из произвольного типа сообщения).
-    await show_screen(callback.message, text=USERS_MENU)
     await callback.message.answer_document(
         document,
         caption=USERS_LIST_CAPTION.format(count=len(rows)),

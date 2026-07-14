@@ -35,10 +35,15 @@ ADMIN_MENU_BTN_BACK = "Назад"
 ADMIN_MENU_BTN_HOME = "🏠 В админ-меню"
 
 # --- Пользователи ---
-USERS_MENU = "Раздел «Пользователи». Список выгружен файлом ниже."
+USERS_MENU = (
+    "👥 <b>Пользователи</b>\n\n"
+    "🔍 Найти конкретного — по Telegram ID, @username или нику.\n"
+    "📤 Выгрузить всех — CSV-файлом."
+)
 USERS_LIST_CAPTION = "Список пользователей: {count} чел."
 USERS_LIST_EMPTY = "В боте пока нет ни одного пользователя."
-USERS_BTN_SEARCH = "🔍 Поиск пользователя"
+USERS_BTN_SEARCH = "🔍 Найти пользователя"
+USERS_BTN_EXPORT = "📤 Выгрузить всех"
 USERS_SEARCH_PROMPT = "Введите Telegram ID, @username или никнейм пользователя:"
 USERS_NOT_FOUND = "Пользователь не найден."
 USERS_CARD = (

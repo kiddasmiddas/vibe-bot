@@ -274,11 +274,12 @@ def admin_cat_content_kb() -> InlineKeyboardMarkup:
 
 
 def users_menu_kb() -> InlineKeyboardMarkup:
-    """Меню раздела «Пользователи»: поиск + назад. Список выгружается файлом."""
-    from app.texts.admin import ADMIN_MENU_BTN_BACK, USERS_BTN_SEARCH
+    """Меню раздела «Пользователи»: выгрузка файлом + поиск + назад."""
+    from app.texts.admin import ADMIN_MENU_BTN_BACK, USERS_BTN_EXPORT, USERS_BTN_SEARCH
 
     b = InlineKeyboardBuilder()
     b.button(text=USERS_BTN_SEARCH, callback_data=AdminUserActionCb(action="search"))
+    b.button(text=USERS_BTN_EXPORT, callback_data=AdminUserActionCb(action="export"))
     b.button(text=ADMIN_MENU_BTN_BACK, callback_data=AdminMenuCb(action="menu"))
     b.adjust(1)
     return b.as_markup()
