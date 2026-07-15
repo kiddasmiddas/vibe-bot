@@ -87,9 +87,12 @@ class AdminVibesCb(CallbackData, prefix="adm_vibes"):
 
 
 class AdminDictCb(CallbackData, prefix="adm_dict"):
-    action: str  # fandoms|interests|vibes|cats|reasons|add|edit|deactivate|activate|open
+    # action: fandoms|interests|vibes|cats|reasons (открыть список, стр. 0)
+    #       | page (листание) | add|edit|deactivate|activate|open|noop
+    action: str
     model: str = ""  # fandom|interest|vibe|creator_category|complaint_reason
     item_id: int = 0
+    page: int = 0
 
 
 class AdminReviewCb(CallbackData, prefix="adm_rev"):
@@ -591,6 +594,50 @@ def dicts_menu_kb() -> InlineKeyboardMarkup:
     )
     b.button(text=ADMIN_MENU_BTN_BACK, callback_data=AdminMenuCb(action="menu"))
     b.adjust(2)
+    return b.as_markup()
+
+
+DICTS_PAGE_SIZE = 8
+
+
+def dict_list_page_kb(
+    model: str, page_items: list[tuple[int, str, bool]], page: int, total_pages: int
+) -> InlineKeyboardMarkup:
+    """Пейджер справочника: элементы страницы кнопками + навигация ◀/▶ + добавить.
+
+    `page_items` — список (item_id, title, is_active) текущей страницы.
+    """
+    from app.texts.admin import (
+        ADMIN_MENU_BTN_BACK,
+        ADMIN_MENU_BTN_HOME,
+        DICTS_BTN_ADD,
+        DICTS_ITEM_BTN,
+    )
+
+    b = InlineKeyboardBuilder()
+    for item_id, title, is_active in page_items:
+        status = "✅" if is_active else "❌"
+        b.button(
+            text=DICTS_ITEM_BTN.format(status=status, title=title),
+            callback_data=AdminDictCb(action="open", model=model, item_id=item_id),
+        )
+    # Ряд навигации ‹ N/M › — крайние заглушки на границах (как в пикере вайбов).
+    if page > 0:
+        b.button(text="‹", callback_data=AdminDictCb(action="page", model=model, page=page - 1))
+    else:
+        b.button(text=" ", callback_data=AdminDictCb(action="noop", model=model))
+    b.button(
+        text=f"{page + 1}/{total_pages}", callback_data=AdminDictCb(action="noop", model=model)
+    )
+    if page < total_pages - 1:
+        b.button(text="›", callback_data=AdminDictCb(action="page", model=model, page=page + 1))
+    else:
+        b.button(text=" ", callback_data=AdminDictCb(action="noop", model=model))
+    b.button(text=DICTS_BTN_ADD, callback_data=AdminDictCb(action="add", model=model))
+    b.button(text=ADMIN_MENU_BTN_BACK, callback_data=AdminMenuCb(action="dicts"))
+    b.button(text=ADMIN_MENU_BTN_HOME, callback_data=AdminMenuCb(action="menu"))
+    # Элементы по одному в ряд, затем навигация (3), затем добавить/назад/домой.
+    b.adjust(*([1] * len(page_items)), 3, 1, 1, 1)
     return b.as_markup()
 
 

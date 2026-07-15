@@ -11,10 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.handlers.admin._helpers import is_admin, show_screen
 from app.bot.keyboards.admin import (
+    DICTS_PAGE_SIZE,
     AdminDictCb,
     AdminMenuCb,
     admin_back_home_kb,
     dict_item_kb,
+    dict_list_page_kb,
     dicts_menu_kb,
 )
 from app.bot.states.admin import AdminDictStates
@@ -28,8 +30,6 @@ from app.db.models.dictionaries import (
 from app.db.models.user import User
 from app.db.repositories.dictionary_repo import DictionaryRepository
 from app.texts.admin import (
-    ADMIN_MENU_BTN_BACK,
-    ADMIN_MENU_BTN_HOME,
     DICTS_ACTIVATED,
     DICTS_ADD_ASK_CODE,
     DICTS_ADD_ASK_IMAGE,
@@ -37,8 +37,6 @@ from app.texts.admin import (
     DICTS_ADD_ASK_TITLE,
     DICTS_ADDED,
     DICTS_ASK_NUMBER_INVALID,
-    DICTS_BTN_ACTIONS,
-    DICTS_BTN_ADD,
     DICTS_DEACTIVATED,
     DICTS_EDIT_ASK_IMAGE,
     DICTS_EDIT_ASK_TITLE,
@@ -46,6 +44,7 @@ from app.texts.admin import (
     DICTS_ERROR_NO_SESSION,
     DICTS_MENU,
     DICTS_NOT_FOUND,
+    DICTS_PAGE_TITLE,
     DICTS_UPDATED,
 )
 
@@ -68,10 +67,6 @@ _MODEL_NAMES: dict[str, str] = {
 }
 
 
-def _list_action(model: str) -> str:
-    return model + "s"
-
-
 @router.callback_query(AdminMenuCb.filter(F.action == "dicts"))
 async def cb_dicts_menu(callback: CallbackQuery, user: User) -> None:
     if not is_admin(user):
@@ -84,8 +79,34 @@ async def cb_dicts_menu(callback: CallbackQuery, user: User) -> None:
 
 # «vibes» здесь больше нет: раздел вайбов — пикер страниц (handlers/admin/vibes.py),
 # а не список сообщений. Старые open/edit-хэндлеры для model="vibe" неактивны из UI.
+async def _render_dict_page(
+    callback: CallbackQuery, model_key: str, page: int, db_session: AsyncSession
+) -> None:
+    """Одно сообщение: страница справочника кнопками + навигация (без флуда)."""
+    model_class = _MODEL_MAP[model_key]
+    items = await DictionaryRepository(db_session).list_all(model_class)
+    if not callback.message:
+        return
+    if not items:
+        await show_screen(callback.message, text=DICTS_EMPTY, reply_markup=dicts_menu_kb())
+        return
+
+    total_pages = max(1, (len(items) + DICTS_PAGE_SIZE - 1) // DICTS_PAGE_SIZE)
+    page = max(0, min(page, total_pages - 1))
+    start = page * DICTS_PAGE_SIZE
+    page_items = [
+        (item.id, item.title, item.is_active) for item in items[start : start + DICTS_PAGE_SIZE]
+    ]
+    name = _MODEL_NAMES.get(model_key, model_key)
+    await show_screen(
+        callback.message,
+        text=DICTS_PAGE_TITLE.format(name=name, page=page + 1, total=total_pages),
+        reply_markup=dict_list_page_kb(model_key, page_items, page, total_pages),
+    )
+
+
 @router.callback_query(
-    AdminDictCb.filter(F.action.in_({"fandoms", "interests", "cats", "reasons"}))
+    AdminDictCb.filter(F.action.in_({"fandoms", "interests", "cats", "reasons", "page"}))
 )
 async def cb_dict_list(
     callback: CallbackQuery,
@@ -96,40 +117,16 @@ async def cb_dict_list(
     if not is_admin(user):
         await callback.answer()
         return
-
-    model_key = callback_data.model
-    model_class = _MODEL_MAP.get(model_key)
-    if not model_class:
+    if callback_data.model not in _MODEL_MAP:
         await callback.answer()
         return
-
-    dict_repo = DictionaryRepository(db_session)
-    items = await dict_repo.list_all(model_class)
     await callback.answer()
-    if not callback.message:
-        return
+    await _render_dict_page(callback, callback_data.model, callback_data.page, db_session)
 
-    if not items:
-        await callback.message.answer(DICTS_EMPTY, reply_markup=admin_back_home_kb())
-        return
 
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-
-    for item in items[:20]:
-        text = f"#{item.id} [{item.code}] {item.title} {'✅' if item.is_active else '❌'}"
-        b = InlineKeyboardBuilder()
-        b.button(
-            text=DICTS_BTN_ACTIONS,
-            callback_data=AdminDictCb(action="open", model=model_key, item_id=item.id),
-        )
-        await callback.message.answer(text, reply_markup=b.as_markup())
-
-    # Кнопка добавить
-    b2 = InlineKeyboardBuilder()
-    b2.button(text=DICTS_BTN_ADD, callback_data=AdminDictCb(action="add", model=model_key))
-    b2.button(text=ADMIN_MENU_BTN_BACK, callback_data=AdminMenuCb(action="dicts"))
-    b2.button(text=ADMIN_MENU_BTN_HOME, callback_data=AdminMenuCb(action="menu"))
-    await callback.message.answer("—", reply_markup=b2.as_markup())
+@router.callback_query(AdminDictCb.filter(F.action == "noop"))
+async def cb_dict_noop(callback: CallbackQuery) -> None:
+    await callback.answer()
 
 
 @router.callback_query(AdminDictCb.filter(F.action == "open"))
@@ -154,8 +151,10 @@ async def cb_dict_open(
             await callback.message.answer(DICTS_NOT_FOUND, reply_markup=admin_back_home_kb())
         return
     text = f"#{item.id} [{item.code}] {item.title} {'✅' if item.is_active else '❌'}"
-    await callback.message.answer(
-        text,
+    # Заменяем список карточкой элемента на месте (без нового сообщения).
+    await show_screen(
+        callback.message,
+        text=text,
         reply_markup=dict_item_kb(callback_data.model, item.id, is_active=item.is_active),
     )
 
