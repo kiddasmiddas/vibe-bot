@@ -16,7 +16,7 @@ class AdminMenuCb(CallbackData, prefix="adm_menu"):
 
 
 class AdminUserActionCb(CallbackData, prefix="adm_user"):
-    action: str  # ban|unban|hide_profile|show_profile|search|make_mod|remove_mod
+    action: str  # ban|unban|hide_profile|show_profile|search|export|make_mod|remove_mod
     target_user_id: int = 0
 
 
@@ -619,7 +619,7 @@ def dict_list_page_kb(
         status = "✅" if is_active else "❌"
         b.button(
             text=DICTS_ITEM_BTN.format(status=status, title=title),
-            callback_data=AdminDictCb(action="open", model=model, item_id=item_id),
+            callback_data=AdminDictCb(action="open", model=model, item_id=item_id, page=page),
         )
     # Ряд навигации ‹ N/M › — крайние заглушки на границах (как в пикере вайбов).
     if page > 0:
@@ -641,7 +641,9 @@ def dict_list_page_kb(
     return b.as_markup()
 
 
-def dict_item_kb(model: str, item_id: int, *, is_active: bool) -> InlineKeyboardMarkup:
+def dict_item_kb(
+    model: str, item_id: int, *, is_active: bool, page: int = 0
+) -> InlineKeyboardMarkup:
     from app.texts.admin import (
         ADMIN_MENU_BTN_BACK,
         ADMIN_MENU_BTN_HOME,
@@ -673,7 +675,11 @@ def dict_item_kb(model: str, item_id: int, *, is_active: bool) -> InlineKeyboard
         "complaint_reason": "reasons",
     }
     back_action = _MODEL_TO_ACTION.get(model, model + "s")
-    b.button(text=ADMIN_MENU_BTN_BACK, callback_data=AdminDictCb(action=back_action, model=model))
+    # «Назад» возвращает на ту же страницу пейджера, откуда открыли карточку.
+    b.button(
+        text=ADMIN_MENU_BTN_BACK,
+        callback_data=AdminDictCb(action=back_action, model=model, page=page),
+    )
     b.button(text=ADMIN_MENU_BTN_HOME, callback_data=AdminMenuCb(action="menu"))
     b.adjust(2)
     return b.as_markup()

@@ -155,7 +155,9 @@ async def cb_dict_open(
     await show_screen(
         callback.message,
         text=text,
-        reply_markup=dict_item_kb(callback_data.model, item.id, is_active=item.is_active),
+        reply_markup=dict_item_kb(
+            callback_data.model, item.id, is_active=item.is_active, page=callback_data.page
+        ),
     )
 
 

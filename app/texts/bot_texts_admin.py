@@ -5,7 +5,7 @@ from __future__ import annotations
 # --- Карусель редактируемых текстов: карточки листаются одна за другой ---
 TEXT_CARD = (
     "✏️ <b>{label}</b> ({pos}/{total})\n\n"
-    "Сейчас:\n<blockquote>{current}</blockquote>\n"
+    "Сейчас:\n<blockquote>{current}</blockquote>\n\n"
     "{button_line}"
     "Подстановки: {hint}\n"
     "{origin}"
@@ -15,13 +15,13 @@ TEXT_CARD = (
 # текст без обёртки.
 TEXT_CARD_NOQUOTE = (
     "✏️ <b>{label}</b> ({pos}/{total})\n\n"
-    "Сейчас:\n{current}\n"
+    "Сейчас:\n{current}\n\n"
     "{button_line}"
     "Подстановки: {hint}\n"
     "{origin}"
 )
 # Строка о тексте кнопки под сообщением (подставляется в {button_line}).
-CARD_BUTTON_LINE = "Кнопка под сообщением: «{button}»\n"
+CARD_BUTTON_LINE = "Кнопка под сообщением: «{button}»\n\n"
 CARD_ORIGIN_DEFAULT = "Используется стандартный текст."
 CARD_ORIGIN_OVERRIDE = "Текст изменён (можно вернуть стандартный)."
 BTN_PREV_TEXT = "◀️ Назад"

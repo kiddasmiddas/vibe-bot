@@ -144,6 +144,23 @@ async def test_edit_button_via_edit_btn_saves_linked_button(db_session) -> None:
 
 
 @pytest.mark.asyncio
+async def test_stale_state_without_text_key_is_safe_noop(db_session) -> None:
+    """FSM-state старого формата (без text_key, остался с прошлого деплоя) —
+    ввод не сохраняется никуда, state сбрасывается."""
+    admin = await _make_admin(db_session)
+    state = _fsm(admin.telegram_id)
+    await state.set_state(AdminTextsStates.ask_value)
+    await state.update_data(text_group="notif", text_idx=0)  # text_key отсутствует
+
+    message = _mock_message(text="Куда-то не туда")
+    await on_texts_new_value(message, state, admin, db_session)
+
+    for spec in GROUPS["notif"]:
+        assert await SettingsRepository(db_session).get(spec.key) is None
+    assert await state.get_state() is None
+
+
+@pytest.mark.asyncio
 async def test_reset_button_via_reset_btn(db_session) -> None:
     admin = await _make_admin(db_session)
     repo = SettingsRepository(db_session)
