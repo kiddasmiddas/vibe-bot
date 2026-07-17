@@ -333,6 +333,11 @@ STOPWORDS_CANCELLED = "Отменено."
 STOPWORDS_MENU = "Стоп-листы"
 STOPWORDS_LIST_HEADER = "Стоп-слова (категория: {category}, всего: {total})"
 STOPWORDS_ITEM = "#{id} [{kind}] [{category}] {pattern} {state}"
+# Пейджер: одно сообщение со страницей-кнопками + навигация ‹ N/M ›.
+STOPWORDS_PAGE_TITLE = (
+    "🚫 <b>Стоп-листы</b> · стр. {page}/{total}\n\nНажми на элемент, чтобы открыть."
+)
+STOPWORDS_ITEM_BTN = "{status} [{kind}] {pattern}"
 STOPWORD_STATE_ON = "активно"
 STOPWORD_STATE_OFF = "неактивно"
 STOPWORD_TOGGLED = "Стоп-слово #{id}: {state}."

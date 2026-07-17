@@ -17,13 +17,13 @@ from app.bot.keyboards.admin import (
     AdminStopWordCb,
     admin_back_home_kb,
     stopword_list_kb,
+    stopword_page_kb,
 )
 from app.bot.states.admin import AdminStopWordStates
 from app.db.models.user import User
 from app.db.repositories.admin_repo import AdminRepository
 from app.db.repositories.moderation_repo import ModerationRepository
 from app.texts.admin import (
-    ADMIN_MENU_BTN_BACK,
     ADMIN_MENU_BTN_HOME,
     STOPWORD_STATE_OFF,
     STOPWORD_STATE_ON,
@@ -32,16 +32,14 @@ from app.texts.admin import (
     STOPWORDS_ADD_ASK_KIND,
     STOPWORDS_ADD_ASK_PATTERN,
     STOPWORDS_ADDED,
-    STOPWORDS_BTN_ADD,
     STOPWORDS_BTN_KIND_REGEX,
     STOPWORDS_BTN_KIND_WORD,
-    STOPWORDS_BTN_SEARCH,
     STOPWORDS_CANCELLED,
     STOPWORDS_EDIT_ASK_PATTERN,
     STOPWORDS_EMPTY,
     STOPWORDS_ITEM,
-    STOPWORDS_MENU,
     STOPWORDS_NOT_FOUND,
+    STOPWORDS_PAGE_TITLE,
     STOPWORDS_REGEX_ERROR,
     STOPWORDS_SEARCH_PROMPT,
     STOPWORDS_UPDATED,
@@ -51,6 +49,7 @@ router = Router(name="admin.stopwords")
 
 _VALID_CATEGORIES = ("hate_speech", "link", "adult_keyword", "other")
 _VALID_KINDS = ("word", "regex")
+STOPWORDS_PAGE_SIZE = 8
 
 
 def _render_item(sw) -> str:  # type: ignore[no-untyped-def]
@@ -63,38 +62,93 @@ def _render_item(sw) -> str:  # type: ignore[no-untyped-def]
     )
 
 
+async def _render_sw_page(callback: CallbackQuery, page: int, db_session: AsyncSession) -> None:
+    """Одно сообщение: страница стоп-слов кнопками + навигация (без флуда)."""
+    if not callback.message:
+        return
+    admin_repo = AdminRepository(db_session)
+    total = await admin_repo.count_stop_words()
+    if total == 0:
+        # Пустой список — та же клавиатура пейджера (добавить/поиск/назад) без элементов.
+        await show_screen(
+            callback.message,
+            text=STOPWORDS_EMPTY,
+            reply_markup=stopword_page_kb([], 0, 1),
+        )
+        return
+
+    total_pages = max(1, (total + STOPWORDS_PAGE_SIZE - 1) // STOPWORDS_PAGE_SIZE)
+    page = max(0, min(page, total_pages - 1))
+    words = await admin_repo.list_stop_words(
+        limit=STOPWORDS_PAGE_SIZE, offset=page * STOPWORDS_PAGE_SIZE
+    )
+    page_items = [(sw.id, sw.kind, sw.pattern, sw.is_active) for sw in words]
+    await show_screen(
+        callback.message,
+        text=STOPWORDS_PAGE_TITLE.format(page=page + 1, total=total_pages),
+        reply_markup=stopword_page_kb(page_items, page, total_pages),
+    )
+
+
 @router.callback_query(AdminMenuCb.filter(F.action == "stopwords"))
 async def cb_stopwords_menu(
     callback: CallbackQuery,
     user: User,
     db_session: AsyncSession,
+    state: FSMContext,
 ) -> None:
     if not is_admin(user):
         await callback.answer()
         return
-    admin_repo = AdminRepository(db_session)
-    words = await admin_repo.list_stop_words(limit=30)
+    await state.clear()
+    await callback.answer()
+    await _render_sw_page(callback, 0, db_session)
+
+
+@router.callback_query(AdminStopWordCb.filter(F.action == "list"))
+async def cb_sw_list(
+    callback: CallbackQuery,
+    callback_data: AdminStopWordCb,
+    user: User,
+    db_session: AsyncSession,
+    state: FSMContext,
+) -> None:
+    if not is_admin(user):
+        await callback.answer()
+        return
+    await state.clear()
+    await callback.answer()
+    await _render_sw_page(callback, callback_data.page, db_session)
+
+
+@router.callback_query(AdminStopWordCb.filter(F.action == "noop"))
+async def cb_sw_noop(callback: CallbackQuery) -> None:
+    await callback.answer()
+
+
+@router.callback_query(AdminStopWordCb.filter(F.action == "open"))
+async def cb_sw_open(
+    callback: CallbackQuery,
+    callback_data: AdminStopWordCb,
+    user: User,
+    db_session: AsyncSession,
+) -> None:
+    """Карточка стоп-слова на месте списка (без нового сообщения)."""
+    if not is_admin(user):
+        await callback.answer()
+        return
+    sw = await AdminRepository(db_session).get_stop_word(callback_data.sw_id)
     await callback.answer()
     if not callback.message:
         return
-
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-
-    from app.bot.keyboards.admin import AdminStopWordCb as SC
-
-    b = InlineKeyboardBuilder()
-    b.button(text=STOPWORDS_BTN_ADD, callback_data=SC(action="add"))
-    b.button(text=STOPWORDS_BTN_SEARCH, callback_data=SC(action="search"))
-    b.button(text=ADMIN_MENU_BTN_BACK, callback_data=AdminMenuCb(action="menu"))
-    b.adjust(2)
-    await show_screen(callback.message, text=STOPWORDS_MENU, reply_markup=b.as_markup())
-
-    if not words:
-        await callback.message.answer(STOPWORDS_EMPTY, reply_markup=admin_back_home_kb())
+    if not sw:
+        await callback.message.answer(STOPWORDS_NOT_FOUND, reply_markup=admin_back_home_kb())
         return
-
-    for sw in words[:20]:
-        await callback.message.answer(_render_item(sw), reply_markup=stopword_list_kb(sw.id))
+    await show_screen(
+        callback.message,
+        text=_render_item(sw),
+        reply_markup=stopword_list_kb(sw.id, callback_data.page),
+    )
 
 
 @router.callback_query(AdminStopWordCb.filter(F.action == "add"))
@@ -254,7 +308,7 @@ async def cb_sw_toggle(
     )
     if callback.message:
         await callback.message.edit_text(
-            _render_item(fresh), reply_markup=stopword_list_kb(fresh.id)
+            _render_item(fresh), reply_markup=stopword_list_kb(fresh.id, callback_data.page)
         )
 
 

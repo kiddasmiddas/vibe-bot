@@ -103,9 +103,12 @@ class AdminReviewCb(CallbackData, prefix="adm_rev"):
 
 
 class AdminStopWordCb(CallbackData, prefix="adm_sw"):
-    action: str  # list|add|toggle|edit|search|cat_all|cat_hate|cat_link|cat_adult|cat_other
+    # action: list (страница пейджера) | open (карточка) | noop
+    #       | add|toggle|edit|search|kind_word|kind_regex|setcat_*
+    action: str
     sw_id: int = 0
     category: str = ""
+    page: int = 0
 
 
 class AdminSettingsCb(CallbackData, prefix="adm_set"):
@@ -769,20 +772,64 @@ def review_post_kb(post_id: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def stopword_list_kb(sw_id: int) -> InlineKeyboardMarkup:
-    from app.texts.admin import ADMIN_MENU_BTN_HOME, STOPWORDS_BTN_EDIT, STOPWORDS_BTN_TOGGLE
+def stopword_list_kb(sw_id: int, page: int = 0) -> InlineKeyboardMarkup:
+    """Карточка стоп-слова: вкл/выкл, правка, возврат к списку (на ту же страницу)."""
+    from app.texts.admin import (
+        ADMIN_MENU_BTN_BACK,
+        ADMIN_MENU_BTN_HOME,
+        STOPWORDS_BTN_EDIT,
+        STOPWORDS_BTN_TOGGLE,
+    )
 
     b = InlineKeyboardBuilder()
     b.button(
         text=STOPWORDS_BTN_TOGGLE,
-        callback_data=AdminStopWordCb(action="toggle", sw_id=sw_id),
+        callback_data=AdminStopWordCb(action="toggle", sw_id=sw_id, page=page),
     )
     b.button(
         text=STOPWORDS_BTN_EDIT,
-        callback_data=AdminStopWordCb(action="edit", sw_id=sw_id),
+        callback_data=AdminStopWordCb(action="edit", sw_id=sw_id, page=page),
     )
+    b.button(text=ADMIN_MENU_BTN_BACK, callback_data=AdminStopWordCb(action="list", page=page))
     b.button(text=ADMIN_MENU_BTN_HOME, callback_data=AdminMenuCb(action="menu"))
     b.adjust(2)
+    return b.as_markup()
+
+
+def stopword_page_kb(
+    page_items: list[tuple[int, str, str, bool]], page: int, total_pages: int
+) -> InlineKeyboardMarkup:
+    """Пейджер стоп-листов: элементы страницы кнопками + ‹ N/M › + добавить/поиск.
+
+    `page_items` — список (sw_id, kind, pattern, is_active) текущей страницы.
+    """
+    from app.texts.admin import (
+        ADMIN_MENU_BTN_BACK,
+        STOPWORDS_BTN_ADD,
+        STOPWORDS_BTN_SEARCH,
+        STOPWORDS_ITEM_BTN,
+    )
+
+    b = InlineKeyboardBuilder()
+    for sw_id, kind, pattern, is_active in page_items:
+        status = "✅" if is_active else "❌"
+        b.button(
+            text=STOPWORDS_ITEM_BTN.format(status=status, kind=kind, pattern=pattern),
+            callback_data=AdminStopWordCb(action="open", sw_id=sw_id, page=page),
+        )
+    if page > 0:
+        b.button(text="‹", callback_data=AdminStopWordCb(action="list", page=page - 1))
+    else:
+        b.button(text=" ", callback_data=AdminStopWordCb(action="noop"))
+    b.button(text=f"{page + 1}/{total_pages}", callback_data=AdminStopWordCb(action="noop"))
+    if page < total_pages - 1:
+        b.button(text="›", callback_data=AdminStopWordCb(action="list", page=page + 1))
+    else:
+        b.button(text=" ", callback_data=AdminStopWordCb(action="noop"))
+    b.button(text=STOPWORDS_BTN_ADD, callback_data=AdminStopWordCb(action="add"))
+    b.button(text=STOPWORDS_BTN_SEARCH, callback_data=AdminStopWordCb(action="search"))
+    b.button(text=ADMIN_MENU_BTN_BACK, callback_data=AdminMenuCb(action="menu"))
+    b.adjust(*([1] * len(page_items)), 3, 2, 1)
     return b.as_markup()
 
 

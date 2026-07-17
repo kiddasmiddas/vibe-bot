@@ -153,6 +153,13 @@ class AdminRepository:
         stmt = stmt.order_by(StopWord.id).limit(limit).offset(offset)
         return list((await self._session.execute(stmt)).scalars().all())
 
+    async def count_stop_words(self, *, category: str | None = None) -> int:
+        """Количество стоп-слов (включая неактивные) — для пагинации раздела."""
+        stmt = select(func.count()).select_from(StopWord)
+        if category:
+            stmt = stmt.where(StopWord.category == category)
+        return int((await self._session.execute(stmt)).scalar_one())
+
     async def get_stop_word(self, sw_id: int) -> StopWord | None:
         return await self._session.get(StopWord, sw_id)
 
