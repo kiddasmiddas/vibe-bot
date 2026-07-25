@@ -2,22 +2,29 @@
 
 Telegram `file_id` нельзя вставить в `<img src>` — это внутренний идентификатор.
 Реальный URL файла: `https://api.telegram.org/file/bot<TOKEN>/<file_path>`,
-где `file_path` отдаёт метод `getFile`. `file_path` для файла стабилен,
-поэтому кэшируем в процессе, чтобы не дёргать getFile на каждый запрос ленты.
+где `file_path` отдаёт метод `getFile`.
+
+⚠️ ВАЖНО: этот URL НЕ вечен. Telegram гарантирует его валидность лишь ~1 час
+(«valid for at least 1 hour»), после чего `file_path` протухает и ссылка отдаёт
+404 — картинки в ленте/аллее становятся битыми. Поэтому кэш URL держим с TTL
+меньше часа и по истечении перерезолвим через getFile заново.
 """
 
 from __future__ import annotations
+
+import time
 
 from aiogram import Bot
 from loguru import logger
 
 from app.config import settings
 
-# file_id -> готовый URL. Процесс-локальный кэш (file_path не меняется).
-# При достижении _URL_CACHE_MAX записей кэш сбрасывается полностью, чтобы
-# исключить неограниченный рост памяти без внешних зависимостей.
+# file_id -> (url, expires_at monotonic). Процесс-локальный кэш с TTL: снимает
+# нагрузку getFile на каждый запрос ленты, но не даёт отдавать протухший URL.
+# TTL с запасом меньше часового гарантийного окна Telegram file_path.
+_URL_TTL_SECONDS = 45 * 60
 _URL_CACHE_MAX = 1000
-_url_cache: dict[str, str] = {}
+_url_cache: dict[str, tuple[str, float]] = {}
 _bot: Bot | None = None
 
 
@@ -29,23 +36,27 @@ def _get_bot() -> Bot:
 
 
 async def resolve_file_url(file_id: str | None) -> str | None:
-    """Возвращает HTTP-URL картинки по Telegram file_id.
+    """Возвращает свежий HTTP-URL картинки по Telegram file_id.
 
+    Кэш с TTL: пока URL заведомо жив — отдаём из кэша, иначе перерезолвим.
     На любой ошибке (нет сети, битый file_id, плейсхолдер) возвращает None —
     фронт покажет fallback-плашку, лента не падает.
     """
     if not file_id:
         return None
-    if file_id in _url_cache:
-        return _url_cache[file_id]
+    now = time.monotonic()
+    cached = _url_cache.get(file_id)
+    if cached is not None and cached[1] > now:
+        return cached[0]
     try:
         tg_file = await _get_bot().get_file(file_id)
         if tg_file.file_path is None:
             return None
         url = f"https://api.telegram.org/file/bot{settings.bot_token}/{tg_file.file_path}"
+        # Переполнение — сброс целиком (без внешних зависимостей на LRU).
         if len(_url_cache) >= _URL_CACHE_MAX:
             _url_cache.clear()
-        _url_cache[file_id] = url
+        _url_cache[file_id] = (url, now + _URL_TTL_SECONDS)
         return url
     except Exception as exc:
         logger.warning("resolve_file_url failed for file_id={}: {}", file_id[:16], exc)
